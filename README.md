@@ -1,4 +1,7 @@
-G-Tasker
+<div align="center">
+  <img src="./public/favicon.svg" alt="G-Tasker Logo" width="72" height="72" />
+
+# G-Tasker
 
 **一个本地优先、简洁完整的个人任务与时间管理工作台。**
 
