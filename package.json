@@ -1,0 +1,78 @@
+{
+  "name": "task-manager",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "lint:eslint": "eslint . --max-warnings=0",
+    "lint:all": "npm run lint && npm run lint:eslint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -b --pretty false",
+    "check": "npm run typecheck && npm run lint:all && npm run format:check",
+    "dead-code": "knip",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "lighthouse": "lighthouse http://127.0.0.1:4173 --config-path=./lighthouserc.json --output=html --output-path=./reports/lighthouse.html",
+    "react-scan": "react-scan",
+    "audit": "npm audit",
+    "audit:prod": "npm audit --omit=dev",
+    "vercel": "vercel",
+    "preview": "vite preview",
+    "prepare": "husky"
+  },
+  "engines": {
+    "node": ">=22.13.0",
+    "npm": ">=10.9.0"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --max-warnings=0",
+      "prettier --check"
+    ],
+    "*.{css,json,md,html,yml,yaml}": "prettier --check"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@tailwindcss/vite": "^4.3.2",
+    "date-fns": "^4.4.0",
+    "dexie": "^4.4.4",
+    "lucide-react": "^1.23.0",
+    "lunar-typescript": "^1.8.6",
+    "postcss": "^8.5.23",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "rrule": "^2.8.1",
+    "tailwindcss": "^4.3.2",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "husky": "^9.1.7",
+    "knip": "^6.26.0",
+    "lighthouse": "^12.8.2",
+    "lint-staged": "^16.4.0",
+    "oxlint": "^1.71.0",
+    "playwright": "^1.61.1",
+    "prettier": "^3.9.5",
+    "react-scan": "^0.5.7",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.63.0",
+    "vercel": "^56.2.0",
+    "vite": "^8.1.1"
+  }
+}

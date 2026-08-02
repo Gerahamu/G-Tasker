@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/main.tsx", "vite.config.ts", "playwright.config.ts"],
+  "project": ["src/**/*.{ts,tsx}", "*.{ts,js}"],
+  "ignore": ["src/lib/PlanPage.tsx"]
+}
