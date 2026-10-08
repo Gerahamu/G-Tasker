@@ -41,7 +41,11 @@ class ReminderEngine {
 
   private markHandled(eventId: string) {
     const key = `reminder-handled-${eventId}`;
-    try { localStorage.setItem(key, '1'); } catch {}
+    try {
+      localStorage.setItem(key, '1');
+    } catch {
+      // BroadcastChannel is optional in older WebViews.
+    }
   }
 
   private isHandled(eventId: string): boolean {
@@ -68,10 +72,12 @@ class ReminderEngine {
     // Notify other tabs
     try {
       this.channel?.postMessage({ type: 'trigger', event, tabId: this.tabId });
-    } catch {}
+    } catch {
+      // localStorage may be unavailable in restricted browser contexts.
+    }
 
     // Show UI
-    this.onShowCallbacks.forEach(cb => cb(event));
+    this.onShowCallbacks.forEach((cb) => cb(event));
   }
 
   startAudio(event: ReminderEvent) {
@@ -79,10 +85,10 @@ class ReminderEngine {
     if (!active || active.audioStarted) return;
     active.audioStarted = true;
 
-    this.playBeep(event.volume);
+    this.playBeep(event.volume, event.soundName);
   }
 
-  private async playBeep(volume: number) {
+  private async playBeep(volume: number, soundName: string) {
     try {
       if (!this.audioContext) {
         this.audioContext = new AudioContext();
@@ -98,10 +104,17 @@ class ReminderEngine {
       this.gainNode.gain.value = Math.max(0, Math.min(1, volume));
       this.gainNode.connect(this.audioContext.destination);
 
-      // Create a pleasant beep sound
+      const sound =
+        soundName === 'soft'
+          ? { type: 'sine' as OscillatorType, frequency: 660 }
+          : soundName === 'digital'
+            ? { type: 'square' as OscillatorType, frequency: 1046.5 }
+            : { type: 'sine' as OscillatorType, frequency: 880 };
+
+      // Create a short, repeatable reminder sound.
       const osc = this.audioContext.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = 880; // A5
+      osc.type = sound.type;
+      osc.frequency.value = sound.frequency;
       osc.connect(this.gainNode);
 
       // Pulse the beep: 200ms on, 300ms off, repeating
@@ -134,7 +147,9 @@ class ReminderEngine {
   private stopAudioInternal() {
     try {
       this.currentAudio?.stop();
-    } catch {}
+    } catch {
+      // Stopping an already-ended oscillator is harmless.
+    }
     this.currentAudio = null;
   }
 
@@ -157,13 +172,23 @@ class ReminderEngine {
       this.stopAudio();
     }
 
-    this.onDismissCallbacks.forEach(cb => cb(eventId));
+    this.onDismissCallbacks.forEach((cb) => cb(eventId));
   }
 
   snooze(eventId: string, _snoozeMinutes: number) {
-    // Snooze just dismisses the current reminder; the alarm/countdown logic
-    // will re-trigger after the snooze interval
+    const active = this.activeReminders.get(eventId);
+    if (!active) return;
+    const event = active.event;
     this.dismiss(eventId);
+    const delay = Math.max(1, _snoozeMinutes || 9) * 60_000;
+    window.setTimeout(() => {
+      this.trigger({
+        ...event,
+        id: `snooze-${event.id}-${Date.now()}`,
+        triggeredAt: new Date().toISOString(),
+        snoozeEnabled: false,
+      });
+    }, delay);
   }
 
   hasActiveReminders(): boolean {
@@ -171,26 +196,33 @@ class ReminderEngine {
   }
 
   getActiveReminders(): ActiveReminder[] {
-    return Array.from(this.activeReminders.values()).filter(r => !r.dismissed);
+    return Array.from(this.activeReminders.values()).filter((r) => !r.dismissed);
   }
 
   onShow(cb: ReminderCallback) {
     this.onShowCallbacks.add(cb);
-    return () => { this.onShowCallbacks.delete(cb); };
+    return () => {
+      this.onShowCallbacks.delete(cb);
+    };
   }
 
   onDismiss(cb: DismissCallback) {
     this.onDismissCallbacks.add(cb);
-    return () => { this.onDismissCallbacks.delete(cb); };
+    return () => {
+      this.onDismissCallbacks.delete(cb);
+    };
   }
 
   /** Send a browser notification if permission granted */
   sendSystemNotification(title: string, body: string) {
+    if (window.gtaskerReminders?.nativeNotifications) return;
     if (!('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
     try {
       new Notification(title, { body, icon: '/favicon.ico', tag: 'g-tasker-reminder' });
-    } catch {}
+    } catch {
+      // Notification APIs can be unavailable or denied by the host.
+    }
   }
 
   destroy() {

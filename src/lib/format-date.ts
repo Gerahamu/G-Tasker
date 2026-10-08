@@ -1,17 +1,27 @@
-import { format, isToday, isTomorrow, parseISO, isThisWeek } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { isToday, isTomorrow, parseISO, isThisWeek } from 'date-fns';
+import { localeFor } from './i18n';
+import type { ResolvedLanguage, Translate } from './i18n';
 
-export function formatDueDate(dateStr: string | null): string {
+export function formatDueDate(
+  dateStr: string | null,
+  lang: ResolvedLanguage,
+  t: Translate,
+): string {
   if (!dateStr) return '';
   const date = parseISO(dateStr);
-  if (isToday(date)) return '今天';
-  if (isTomorrow(date)) return '明天';
-  return format(date, 'M月d日', { locale: zhCN });
+  if (isToday(date)) return t('today');
+  if (isTomorrow(date)) return t('tomorrow');
+  return new Intl.DateTimeFormat(localeFor(lang), { month: 'short', day: 'numeric' }).format(date);
 }
 
-export function formatDueDateTime(dateStr: string | null, timeStr: string | null): string {
+export function formatDueDateTime(
+  dateStr: string | null,
+  timeStr: string | null,
+  lang: ResolvedLanguage,
+  t: Translate,
+): string {
   if (!dateStr) return '';
-  const base = formatDueDate(dateStr);
+  const base = formatDueDate(dateStr, lang, t);
   if (timeStr) return `${base} ${timeStr}`;
   return base;
 }
@@ -19,7 +29,7 @@ export function formatDueDateTime(dateStr: string | null, timeStr: string | null
 // ✅ 精确到时分的逾期判断
 export function getDueDateStatus(
   dateStr: string | null,
-  timeStr?: string | null
+  timeStr?: string | null,
 ): 'overdue' | 'today' | 'upcoming' | 'none' {
   if (!dateStr) return 'none';
 
@@ -39,7 +49,9 @@ export function getDueDateStatus(
   }
 
   if (dueDateTime.getTime() < now.getTime()) return 'overdue';
-  if (dueDateTime >= todayStart && dueDateTime < new Date(todayStart.getTime() + 86400000)) return 'today';
+  const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  if (dueDateTime >= todayStart && dueDateTime < tomorrowStart)
+    return 'today';
   return 'upcoming';
 }
 
@@ -47,15 +59,36 @@ export function isOverdue(dateStr: string | null, timeStr?: string | null): bool
   return getDueDateStatus(dateStr, timeStr) === 'overdue';
 }
 
-export function formatRelative(dateStr: string): string {
+export function formatRelative(dateStr: string, lang: ResolvedLanguage, t: Translate): string {
   const date = parseISO(dateStr);
-  if (isToday(date)) return `今天 ${format(date, 'HH:mm')}`;
-  if (isThisWeek(date)) return format(date, 'EEEE HH:mm', { locale: zhCN });
-  return format(date, 'yyyy年M月d日 HH:mm', { locale: zhCN });
+  const time = new Intl.DateTimeFormat(localeFor(lang), {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+  if (isToday(date)) return `${t('today')} ${time}`;
+  if (isThisWeek(date))
+    return new Intl.DateTimeFormat(localeFor(lang), {
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  return new Intl.DateTimeFormat(localeFor(lang), {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
 }
 
-export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+export function todayISO(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function nowISO(): string {

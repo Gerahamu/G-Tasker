@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useClockStore } from '../../stores/clock-store';
 import { useT } from '../../lib/i18n';
 import { getTimezoneInfo, getTimeDiff, convertTime } from '../../lib/time-utils';
+import { todayISO } from '../../lib/format-date';
 import type { TimeConversionResult } from '../../lib/clock-types';
 import { Search, Plus, Star, Trash2, ArrowRightLeft } from 'lucide-react';
 
@@ -36,7 +37,7 @@ export function WorldClockPanel() {
   const [showSearch, setShowSearch] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [convOpen, setConvOpen] = useState(false);
-  const [convDate, setConvDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [convDate, setConvDate] = useState(() => todayISO());
   const [convTime, setConvTime] = useState(() => {
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;

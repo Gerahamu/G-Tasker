@@ -1,7 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useUIStore } from '../../stores/ui-store';
+import { useClockStore } from '../../stores/clock-store';
 import { resetOnboarding } from '../onboarding/OnboardingGuide';
-import { db } from '../../db/database';
+import { ClockSettingsPanel } from '../clock/ClockSettingsPanel';
+import { exportDatabaseBackup } from '../../db/export-backup';
+import { clearAllBusinessData } from '../../db/maintenance';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { todayISO } from '../../lib/format-date';
 import {
   LANGUAGE_LABELS,
   useT,
@@ -10,6 +15,18 @@ import {
   type AppLanguage,
 } from '../../lib/i18n';
 import { COUNTRY_NAMES } from '../../lib/holiday-data';
+import {
+  readTaskExpandTrigger,
+  saveTaskExpandTrigger,
+  type TaskExpandTrigger,
+} from '../../lib/task-expand-trigger';
+import {
+  DAILY_REMINDER_SETTINGS_CHANGED,
+  DEFAULT_DAILY_REMINDER_SETTINGS,
+  readDailyReminderSettings,
+  saveDailyReminderSettings,
+  type DailyReminderSettings,
+} from '../../lib/daily-reminders';
 import type { CountryCode } from '../../lib/types';
 import {
   Sun,
@@ -25,7 +42,9 @@ import {
   ChevronRight,
   HelpCircle,
   Globe,
+  Clock,
   Sparkles,
+  type LucideIcon,
 } from 'lucide-react';
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -38,38 +57,126 @@ function load<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-function save(key: string, val: any) {
+function save<T>(key: string, val: T) {
   try {
     localStorage.setItem(key, JSON.stringify(val));
-  } catch {}
+  } catch {
+    // Settings remain usable when storage is unavailable.
+  }
+}
+
+interface SettingsSectionHeaderProps {
+  id: string;
+  icon: LucideIcon;
+  title: string;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+}
+
+function SettingsSectionHeader({
+  id,
+  icon: Icon,
+  title,
+  expanded,
+  onToggle,
+}: SettingsSectionHeaderProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(id)}
+      aria-expanded={expanded}
+      aria-controls={`settings-${id}`}
+      className="settings-section-header"
+    >
+      <span className="settings-section-header-label">
+        <Icon size={17} aria-hidden="true" />
+        <span>{title}</span>
+      </span>
+      <ChevronRight
+        size={16}
+        aria-hidden="true"
+        className={`settings-section-chevron ${expanded ? 'is-expanded' : ''}`}
+      />
+    </button>
+  );
+}
+
+interface SettingsToggleProps {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+}
+
+function SettingsToggle({ checked, onChange, label }: SettingsToggleProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`settings-toggle ${checked ? 'is-checked' : ''}`}
+    >
+      <span />
+    </button>
+  );
+}
+
+interface SettingsHelpButtonProps {
+  label: string;
+  onToggle: () => void;
+}
+
+function SettingsHelpButton({ label, onToggle }: SettingsHelpButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      className="settings-help-button"
+      aria-label={label}
+    >
+      <HelpCircle size={13} />
+    </button>
+  );
 }
 
 export function SettingsPage() {
   const { t, rawLang, setLang, lang } = useT();
   const { calendarCountry, setCalendarCountry } = useCalendarCountry();
   const addToast = useUIStore((s) => s.addToast);
+  const loadClockSettings = useClockStore((s) => s.loadClockSettings);
+
+  useEffect(() => {
+    void loadClockSettings();
+  }, [loadClockSettings]);
 
   const [theme, setTheme] = useState<ThemeMode>(load('theme-mode', 'system'));
   const [fontSize, setFontSize] = useState<FontSize>(load('font-size', 'normal'));
-  const [draftLang, setDraftLang] = useState<AppLanguage>(rawLang);
-  const [draftCountry, setDraftCountry] = useState<CountryCode>(calendarCountry);
+  const [pendingCountry, setDraftCountry] = useState<CountryCode | null>(null);
+  const draftCountry = pendingCountry ?? calendarCountry;
   const [notifyEnabled, setNotifyEnabled] = useState(load('notify-enabled', true));
   const [defaultReminder, setDefaultReminder] = useState(load('notify-reminder', 15));
   const [overdueReminder, setOverdueReminder] = useState(load('notify-overdue', true));
   const [notifySound, setNotifySound] = useState(load('notify-sound', true));
-  const [defaultPriority, setDefaultPriority] = useState<'high' | 'medium' | 'low'>(
-    load('task-default-priority', 'medium'),
-  );
+  const [dailyReminders, setDailyReminders] =
+    useState<DailyReminderSettings>(readDailyReminderSettings);
   const [defaultDueDate, setDefaultDueDate] = useState(load('task-default-due', false));
+  const [taskExpandTrigger, setTaskExpandTrigger] =
+    useState<TaskExpandTrigger>(readTaskExpandTrigger);
   const [sections, setSections] = useState<Record<string, boolean>>({
     appearance: true,
     lang: true,
     notify: true,
+    clock: true,
     task: true,
     data: false,
     about: false,
   });
   const [showHelp, setShowHelp] = useState<Record<string, boolean>>({});
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const toggle = (s: string) => setSections((p) => ({ ...p, [s]: !p[s] }));
   const toggleHelp = (k: string) => setShowHelp((p) => ({ ...p, [k]: !p[k] }));
 
@@ -96,40 +203,46 @@ export function SettingsPage() {
     document.documentElement.classList.add(`font-scale-${s}`);
     addToast(t('fontUpdated'), 'success');
   };
-  const handleSaveLang = () => {
-    setLang(draftLang);
+  const handleSaveCountry = () => {
     setCalendarCountry(draftCountry);
+    setDraftCountry(null);
     addToast(t('langUpdated'), 'success');
   };
-  const langModified = draftLang !== rawLang || draftCountry !== calendarCountry;
-  const saveAndToast = (k: string, v: any, m: string) => {
+  const countryModified = draftCountry !== calendarCountry;
+  const saveAndToast = <T,>(k: string, v: T, m: string) => {
     save(k, v);
     addToast(m, 'success');
   };
+  const updateDailyReminders = (patch: Partial<DailyReminderSettings>) => {
+    setDailyReminders((current) => {
+      const next = { ...current, ...patch };
+      saveDailyReminderSettings(next);
+      return next;
+    });
+  };
 
   const handleClearAll = async () => {
-    if (!confirm(t('confirmClearAll'))) return;
-    await db.tasks.clear();
-    await db.taskLists.clear();
-    await db.tags.clear();
-    await db.taskTags.clear();
-    await db.calendarMarkers.clear();
-    await db.subtasks.clear();
-    addToast(t('dataCleared'), 'success');
-    setTimeout(() => window.location.reload(), 500);
+    try {
+      await clearAllBusinessData();
+      setShowClearConfirm(false);
+      addToast(t('dataCleared'), 'success');
+      setTimeout(() => window.location.reload(), 500);
+    } catch {
+      addToast(t('operationFailed'), 'error');
+    }
   };
   const handleExport = async () => {
-    const data = {
-      tasks: await db.tasks.toArray(),
-      lists: await db.taskLists.toArray(),
-      tags: await db.tags.toArray(),
-      markers: await db.calendarMarkers.toArray(),
-      exportedAt: new Date().toISOString(),
-    };
+    let data;
+    try {
+      data = await exportDatabaseBackup();
+    } catch {
+      addToast(t('dataExportFailed'), 'error');
+      return;
+    }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `g-tasker-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `g-tasker-${todayISO()}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
     addToast(t('dataExported'), 'success');
@@ -146,19 +259,22 @@ export function SettingsPage() {
     setOverdueReminder(true);
     save('notify-sound', true);
     setNotifySound(true);
-    save('task-default-priority', 'medium');
-    setDefaultPriority('medium');
+    saveDailyReminderSettings(DEFAULT_DAILY_REMINDER_SETTINGS);
+    setDailyReminders(DEFAULT_DAILY_REMINDER_SETTINGS);
     save('task-default-due', false);
     setDefaultDueDate(false);
+    saveTaskExpandTrigger('click');
+    setTaskExpandTrigger('click');
     try {
       localStorage.removeItem('tag-categories');
-    } catch {}
+    } catch {
+      // Reset the remaining settings even when storage is unavailable.
+    }
     addToast(t('settingsReset'), 'success');
     setTimeout(() => window.location.reload(), 500);
   };
 
   const L = {
-    settings: t('settingsTitle'),
     themeMode: t('themeMode'),
     light: t('light'),
     dark: t('dark'),
@@ -176,8 +292,17 @@ export function SettingsPage() {
     notifyReminder: t('notifyReminder'),
     notifyOverdue: t('notifyOverdue'),
     notifySound: t('notifySound'),
+    dailyReminderTitle: t('dailyReminderTitle'),
+    morningReminder: t('morningReminder'),
+    morningReminderTime: t('morningReminderTime'),
+    eveningReminder: t('eveningReminder'),
+    eveningReminderTime: t('eveningReminderTime'),
+    weekendReminder: t('weekendReminder'),
+    showNoTasksReminder: t('showNoTasksReminder'),
     taskDefaults: t('taskDefaults'),
-    defaultPriority: t('defaultPriority'),
+    taskExpandTrigger: t('taskExpandTrigger'),
+    taskExpandClick: t('taskExpandClick'),
+    taskExpandHover: t('taskExpandHover'),
     defaultDue: t('defaultDue'),
     dataMgmt: t('dataMgmt'),
     exportData: t('exportData'),
@@ -190,61 +315,24 @@ export function SettingsPage() {
     sendFeedback: t('sendFeedback'),
     aboutDesc: t('aboutDesc'),
     appearance: t('appearance'),
+    clockSettings: t('clockSettings'),
   };
-
-  const SectionHeader = ({ id, icon: Icon, title }: { id: string; icon: any; title: string }) => (
-    <button
-      onClick={() => toggle(id)}
-      className="w-full flex items-center justify-between py-3 cursor-pointer"
-    >
-      <div className="flex items-center gap-2.5">
-        <Icon size={17} className="text-gray-500" />
-        <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</span>
-      </div>
-      <ChevronRight
-        size={16}
-        className={`text-gray-400 transition-transform duration-200 ${sections[id] ? 'rotate-90' : ''}`}
-      />
-    </button>
-  );
-  const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
-    <button
-      onClick={() => onChange(!checked)}
-      className={`w-9 h-5 rounded-full transition-colors relative ${checked ? 'bg-blue-500' : 'bg-gray-300'}`}
-    >
-      <span
-        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? 'left-4' : 'left-0.5'}`}
-      />
-    </button>
-  );
-  const HelpBtn = ({ id }: { id: string }) => (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        toggleHelp(id);
-      }}
-      className="text-gray-300 hover:text-blue-400"
-    >
-      <HelpCircle size={13} />
-    </button>
-  );
 
   return (
     <div className="settings-page">
-      <div className="page-heading">
-        <div>
-          <p className="page-eyebrow">PREFERENCES</p>
-          <h3 className="page-display-title">{L.settings}</h3>
-        </div>
-      </div>
-
-      <div className="settings-section">
-        <SectionHeader id="appearance" icon={Sun} title={L.appearance} />
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <SettingsSectionHeader
+          id="appearance"
+          icon={Sun}
+          title={L.appearance}
+          expanded={sections.appearance}
+          onToggle={toggle}
+        />
         {sections.appearance && (
-          <div className="pb-4 space-y-4 animate-slide-down">
+          <div id="settings-appearance" className="pb-4 space-y-4 animate-slide-down">
             <div>
               <p className="text-xs text-gray-400 mb-2">{L.themeMode}</p>
-              <div className="flex gap-2">
+              <div className="gt-segmented">
                 {(
                   [
                     ['light', Sun, L.light],
@@ -255,7 +343,8 @@ export function SettingsPage() {
                   <button
                     key={v}
                     onClick={() => applyTheme(v)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border transition-colors ${theme === v ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                    aria-pressed={theme === v}
+                    className={`gt-segmented-item flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${theme === v ? 'is-active text-blue-700' : 'text-gray-500 hover:bg-gray-50'}`}
                   >
                     <Ic size={14} /> {lb}
                   </button>
@@ -264,12 +353,13 @@ export function SettingsPage() {
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-2">{L.fontSize}</p>
-              <div className="flex gap-2">
+              <div className="gt-segmented">
                 {(['small', 'normal', 'large'] as const).map((s) => (
                   <button
                     key={s}
                     onClick={() => applyFont(s)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${fontSize === s ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}
+                    aria-pressed={fontSize === s}
+                    className={`gt-segmented-item py-1.5 text-xs font-medium transition-colors ${fontSize === s ? 'is-active text-blue-700' : 'text-gray-500'}`}
                   >
                     {s === 'small' ? L.fontSmall : s === 'normal' ? L.fontNormal : L.fontLarge}
                   </button>
@@ -280,42 +370,50 @@ export function SettingsPage() {
         )}
       </div>
 
-      <div className="settings-section">
-        <div className="flex items-center justify-between">
-          <SectionHeader id="lang" icon={Globe} title={L.langTitle} />
-          {langModified && (
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <div className="settings-section-heading-row">
+          <SettingsSectionHeader
+            id="lang"
+            icon={Globe}
+            title={L.langTitle}
+            expanded={sections.lang}
+            onToggle={toggle}
+          />
+          {countryModified && (
             <button
-              onClick={handleSaveLang}
-              className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 flex-shrink-0 ml-2"
+              onClick={handleSaveCountry}
+              className="gt-button-primary min-h-0 px-3 py-1.5 text-xs flex-shrink-0 ml-2"
             >
               {L.save}
             </button>
           )}
         </div>
         {sections.lang && (
-          <div className="pb-4 space-y-4 animate-slide-down">
+          <div id="settings-lang" className="pb-4 space-y-4 animate-slide-down">
             <div>
               <p className="text-xs text-gray-400 mb-2">{L.uiLang}</p>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {(Object.entries(LANGUAGE_LABELS) as [AppLanguage, string][]).map(
-                  ([code, name]) => (
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.entries(LANGUAGE_LABELS) as [AppLanguage, string][])
+                  .filter(([code]) => code !== 'auto')
+                  .map(([code, name]) => (
                     <button
                       key={code}
-                      onClick={() => setDraftLang(code)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${draftLang === code ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                      onClick={() => setLang(code)}
+                      aria-pressed={rawLang === code}
+                      className={`gt-button-secondary px-2 py-1.5 text-xs ${rawLang === code ? 'border-blue-300 text-blue-700' : 'text-gray-500'}`}
                     >
-                      {code === 'auto' ? `🔄 ${LANGUAGE_LABELS[rawLang]}` : name}
+                      {name}
                     </button>
-                  ),
-                )}
+                  ))}
               </div>
             </div>
             <div>
               <p className="text-xs text-gray-400 mb-2">{L.calCountry}</p>
               <select
+                aria-label={L.calCountry}
                 value={draftCountry}
                 onChange={(e) => setDraftCountry(e.target.value as CountryCode)}
-                className="w-full sm:w-64 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="gt-field w-full sm:w-64 px-3 py-2 text-sm"
               >
                 {(Object.keys(COUNTRY_NAMES) as CountryCode[]).map((code) => (
                   <option key={code} value={code}>
@@ -328,20 +426,31 @@ export function SettingsPage() {
         )}
       </div>
 
-      <div className="settings-section">
-        <SectionHeader id="notify" icon={Bell} title={L.notifyTitle} />
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <SettingsSectionHeader
+          id="notify"
+          icon={Bell}
+          title={L.notifyTitle}
+          expanded={sections.notify}
+          onToggle={toggle}
+        />
         {sections.notify && (
-          <div className="pb-4 space-y-4 animate-slide-down">
+          <div id="settings-notify" className="pb-4 space-y-4 animate-slide-down">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{L.notifySwitch}</span>
-                <HelpBtn id="n0" />
+                <SettingsHelpButton
+                  label={t('notificationsHelp')}
+                  onToggle={() => toggleHelp('n0')}
+                />
               </div>
-              <Toggle
+              <SettingsToggle
+                label={L.notifySwitch}
                 checked={notifyEnabled}
                 onChange={(v) => {
                   setNotifyEnabled(v);
                   saveAndToast('notify-enabled', v, v ? t('notifyOn') : t('notifyOff'));
+                  window.dispatchEvent(new Event(DAILY_REMINDER_SETTINGS_CHANGED));
                 }}
               />
             </div>
@@ -353,22 +462,26 @@ export function SettingsPage() {
             <div>
               <div className="flex items-center gap-1.5 mb-2">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{L.notifyReminder}</span>
-                <HelpBtn id="n1" />
+                <SettingsHelpButton
+                  label={t('notificationsHelp')}
+                  onToggle={() => toggleHelp('n1')}
+                />
               </div>
               {showHelp.n1 && (
                 <p className="text-xs text-blue-500 bg-blue-50 dark:bg-blue-900/30 rounded-lg p-2 mb-2">
                   {t('helpNotifyReminder')}
                 </p>
               )}
-              <div className="flex gap-2">
+              <div className="gt-segmented">
                 {[5, 15, 60].map((m) => (
                   <button
                     key={m}
+                    aria-pressed={defaultReminder === m}
                     onClick={() => {
                       setDefaultReminder(m);
                       saveAndToast('notify-reminder', m, `${L.notifyReminder}: ${m}${t('minAgo')}`);
                     }}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${defaultReminder === m ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}
+                    className={`gt-segmented-item py-1.5 text-xs font-medium ${defaultReminder === m ? 'is-active text-blue-700' : 'text-gray-500'}`}
                   >
                     {m < 60 ? `${m}${t('minAgo')}` : `1${t('hrAgo')}`}
                   </button>
@@ -378,13 +491,15 @@ export function SettingsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{L.notifyOverdue}</span>
-                <HelpBtn id="n2" />
+                <SettingsHelpButton label={t('overdueHelp')} onToggle={() => toggleHelp('n2')} />
               </div>
-              <Toggle
+              <SettingsToggle
+                label={L.notifyOverdue}
                 checked={overdueReminder}
                 onChange={(v) => {
                   setOverdueReminder(v);
                   save('notify-overdue', v);
+                  window.dispatchEvent(new Event(DAILY_REMINDER_SETTINGS_CHANGED));
                 }}
               />
             </div>
@@ -396,13 +511,15 @@ export function SettingsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{L.notifySound}</span>
-                <HelpBtn id="n3" />
+                <SettingsHelpButton label={t('soundHelp')} onToggle={() => toggleHelp('n3')} />
               </div>
-              <Toggle
+              <SettingsToggle
+                label={L.notifySound}
                 checked={notifySound}
                 onChange={(v) => {
                   setNotifySound(v);
                   save('notify-sound', v);
+                  window.dispatchEvent(new Event(DAILY_REMINDER_SETTINGS_CHANGED));
                 }}
               />
             </div>
@@ -411,41 +528,128 @@ export function SettingsPage() {
                 {t('helpNotifySound')}
               </p>
             )}
+            <div className="border-t border-gray-200/70 dark:border-white/10 pt-4 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                {L.dailyReminderTitle}
+              </p>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {L.morningReminder}
+                </span>
+                <SettingsToggle
+                  label={L.morningReminder}
+                  checked={dailyReminders.morningEnabled}
+                  onChange={(morningEnabled) => updateDailyReminders({ morningEnabled })}
+                />
+              </div>
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {L.morningReminderTime}
+                </span>
+                <input
+                  type="time"
+                  aria-label={L.morningReminderTime}
+                  value={dailyReminders.morningTime}
+                  disabled={!dailyReminders.morningEnabled}
+                  onChange={(event) => updateDailyReminders({ morningTime: event.target.value })}
+                  className="gt-field w-32 px-3 py-1.5 text-sm disabled:opacity-50"
+                />
+              </label>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {L.eveningReminder}
+                </span>
+                <SettingsToggle
+                  label={L.eveningReminder}
+                  checked={dailyReminders.eveningEnabled}
+                  onChange={(eveningEnabled) => updateDailyReminders({ eveningEnabled })}
+                />
+              </div>
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {L.eveningReminderTime}
+                </span>
+                <input
+                  type="time"
+                  aria-label={L.eveningReminderTime}
+                  value={dailyReminders.eveningTime}
+                  disabled={!dailyReminders.eveningEnabled}
+                  onChange={(event) => updateDailyReminders({ eveningTime: event.target.value })}
+                  className="gt-field w-32 px-3 py-1.5 text-sm disabled:opacity-50"
+                />
+              </label>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {L.weekendReminder}
+                </span>
+                <SettingsToggle
+                  label={L.weekendReminder}
+                  checked={dailyReminders.weekendEnabled}
+                  onChange={(weekendEnabled) => updateDailyReminders({ weekendEnabled })}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {L.showNoTasksReminder}
+                </span>
+                <SettingsToggle
+                  label={L.showNoTasksReminder}
+                  checked={dailyReminders.showWhenNoTasks}
+                  onChange={(showWhenNoTasks) => updateDailyReminders({ showWhenNoTasks })}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>
 
-      <div className="settings-section">
-        <SectionHeader id="task" icon={PlusCircle} title={L.taskDefaults} />
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <SettingsSectionHeader
+          id="clock"
+          icon={Clock}
+          title={L.clockSettings}
+          expanded={sections.clock}
+          onToggle={toggle}
+        />
+        {sections.clock && (
+          <div id="settings-clock" className="pb-4 animate-slide-down">
+            <ClockSettingsPanel />
+          </div>
+        )}
+      </div>
+
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <SettingsSectionHeader
+          id="task"
+          icon={PlusCircle}
+          title={L.taskDefaults}
+          expanded={sections.task}
+          onToggle={toggle}
+        />
         {sections.task && (
-          <div className="pb-4 space-y-4 animate-slide-down">
+          <div id="settings-task" className="pb-4 space-y-4 animate-slide-down">
             <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {L.defaultPriority}
-                </span>
-                <HelpBtn id="t0" />
-              </div>
-              {showHelp.t0 && (
-                <p className="text-xs text-blue-500 bg-blue-50 dark:bg-blue-900/30 rounded-lg p-2 mb-2">
-                  {t('helpDefaultPriority')}
-                </p>
-              )}
-              <div className="flex gap-2">
-                {[
-                  { v: 'high' as const, l: `🔴 ${t('high')}` },
-                  { v: 'medium' as const, l: `🟡 ${t('medium')}` },
-                  { v: 'low' as const, l: `⚪ ${t('low')}` },
-                ].map(({ v, l }) => (
+              <span className="mb-2 block text-sm text-gray-600 dark:text-gray-400">
+                {L.taskExpandTrigger}
+              </span>
+              <div className="gt-segmented" role="group" aria-label={L.taskExpandTrigger}>
+                {(
+                  [
+                    ['click', L.taskExpandClick],
+                    ['hover', L.taskExpandHover],
+                  ] as const
+                ).map(([trigger, label]) => (
                   <button
-                    key={v}
+                    key={trigger}
+                    type="button"
+                    aria-pressed={taskExpandTrigger === trigger}
                     onClick={() => {
-                      setDefaultPriority(v);
-                      saveAndToast('task-default-priority', v, `${L.defaultPriority}: ${l}`);
+                      setTaskExpandTrigger(trigger);
+                      saveTaskExpandTrigger(trigger);
                     }}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${defaultPriority === v ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}
+                    className={`gt-segmented-item py-1.5 text-xs font-medium ${taskExpandTrigger === trigger ? 'is-active text-blue-700' : 'text-gray-500'}`}
                   >
-                    {l}
+                    {label}
                   </button>
                 ))}
               </div>
@@ -453,9 +657,10 @@ export function SettingsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{L.defaultDue}</span>
-                <HelpBtn id="t1" />
+                <SettingsHelpButton label={t('dueDateHelp')} onToggle={() => toggleHelp('t1')} />
               </div>
-              <Toggle
+              <SettingsToggle
+                label={L.defaultDue}
                 checked={defaultDueDate}
                 onChange={(v) => {
                   setDefaultDueDate(v);
@@ -468,37 +673,35 @@ export function SettingsPage() {
                 {t('helpDefaultDue')}
               </p>
             )}
-            <div>
-              {showHelp.t2 && (
-                <p className="text-xs text-blue-500 bg-blue-50 dark:bg-blue-900/30 rounded-lg p-2 mb-2">
-                  {t('helpDefaultView')}
-                </p>
-              )}
-              <div className="flex gap-2"></div>
-            </div>
           </div>
         )}
       </div>
 
-      <div className="settings-section">
-        <SectionHeader id="data" icon={Trash2} title={L.dataMgmt} />
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <SettingsSectionHeader
+          id="data"
+          icon={Trash2}
+          title={L.dataMgmt}
+          expanded={sections.data}
+          onToggle={toggle}
+        />
         {sections.data && (
-          <div className="pb-4 space-y-3 animate-slide-down">
+          <div id="settings-data" className="pb-4 space-y-3 animate-slide-down">
             <button
               onClick={handleExport}
-              className="w-full flex items-center gap-3 px-3 py-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 transition-colors"
+              className="gt-list-row gt-button-ghost w-full flex items-center justify-start gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300"
             >
               <Download size={16} /> {L.exportData}
             </button>
             <button
               onClick={handleReset}
-              className="w-full flex items-center gap-3 px-3 py-2.5 bg-gray-50 dark:bg-gray-800 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 transition-colors"
+              className="gt-list-row gt-button-ghost w-full flex items-center justify-start gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300"
             >
               <RotateCcw size={16} /> {L.resetSettings}
             </button>
             <button
-              onClick={handleClearAll}
-              className="w-full flex items-center gap-3 px-3 py-2.5 bg-red-50 rounded-xl text-sm text-red-600 hover:bg-red-100 transition-colors"
+              onClick={() => setShowClearConfirm(true)}
+              className="gt-list-row gt-button-danger w-full flex items-center justify-start gap-3 px-3 py-2.5 text-sm"
             >
               <Trash2 size={16} /> {L.clearAll}
             </button>
@@ -506,10 +709,19 @@ export function SettingsPage() {
         )}
       </div>
 
-      <div className="settings-section">
-        <SectionHeader id="about" icon={Info} title={L.about} />
+      <div className="settings-section gt-material-content" data-ui="settings-group">
+        <SettingsSectionHeader
+          id="about"
+          icon={Info}
+          title={L.about}
+          expanded={sections.about}
+          onToggle={toggle}
+        />
         {sections.about && (
-          <div className="pb-6 space-y-3 animate-slide-down text-sm text-gray-600 dark:text-gray-400">
+          <div
+            id="settings-about"
+            className="pb-6 space-y-3 animate-slide-down text-sm text-gray-600 dark:text-gray-400"
+          >
             <div className="flex justify-between py-1">
               <span className="text-gray-400">{L.version}</span>
               <span className="font-medium">v0.2.0</span>
@@ -529,13 +741,13 @@ export function SettingsPage() {
               }}
               className="flex items-center gap-2 text-blue-500 hover:text-blue-700 text-sm"
             >
-              <Sparkles size={14} /> 重新查看使用引导
+              <Sparkles size={14} /> {t('revisitGuide')}
             </button>
             <a
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                addToast('算了，待会再说', 'info');
+                addToast(t('feedbackDeferred'), 'info');
               }}
               className="flex items-center gap-2 text-blue-500 hover:text-blue-700"
             >
@@ -549,6 +761,15 @@ export function SettingsPage() {
       </div>
 
       <div className="h-12" />
+      {showClearConfirm && (
+        <ConfirmDialog
+          title={L.clearAll}
+          message={t('confirmClearAll')}
+          confirmLabel={t('deleteBtn')}
+          onConfirm={() => void handleClearAll()}
+          onCancel={() => setShowClearConfirm(false)}
+        />
+      )}
     </div>
   );
 }

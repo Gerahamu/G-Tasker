@@ -2,6 +2,8 @@
 // Pure functions — no side effects, no DB access
 
 import type { AlarmRepeatRule } from './clock-types';
+import { localeFor } from './i18n';
+import type { ResolvedLanguage, Translate, TranslationKey } from './i18n';
 
 // ──── Timezone utilities ────
 
@@ -284,7 +286,7 @@ export function calcNextRingTime(hour: number, minute: number, rule: AlarmRepeat
 }
 
 /** Format "next ring" as a human-readable string */
-export function formatNextRingTime(date: Date | null, t: (key: string) => string): string {
+export function formatNextRingTime(date: Date | null, t: Translate, lang: ResolvedLanguage): string {
   if (!date) return '—';
   const now = new Date();
   const diffMs = date.getTime() - now.getTime();
@@ -293,7 +295,7 @@ export function formatNextRingTime(date: Date | null, t: (key: string) => string
   const diffMin = Math.floor(diffMs / 60000);
   const diffHr = Math.floor(diffMin / 60);
 
-  const timeStr = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const timeStr = date.toLocaleTimeString(localeFor(lang), { hour: '2-digit', minute: '2-digit', hour12: false });
 
   // Today
   if (date.toDateString() === now.toDateString()) {
@@ -309,7 +311,7 @@ export function formatNextRingTime(date: Date | null, t: (key: string) => string
   }
 
   // This week
-  const weekdays = ['sunday2', 'monday2', 'tuesday2', 'wednesday2', 'thursday2', 'friday2', 'saturday2'];
+  const weekdays = ['sunday2', 'monday2', 'tuesday2', 'wednesday2', 'thursday2', 'friday2', 'saturday2'] as const satisfies readonly TranslationKey[];
   const diffDays = Math.ceil(diffMs / 86400000);
   if (diffDays <= 7) {
     return `${t(weekdays[date.getDay()])} ${timeStr}`;

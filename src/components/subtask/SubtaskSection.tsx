@@ -2,17 +2,32 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { db } from '../../db/database';
 import type { Subtask } from '../../lib/types';
 import { Plus, Check, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { useT } from '../../lib/i18n';
+import { sortCompletedLast } from '../../lib/completion-sort';
+import { SortableCollection } from '../dnd/SortableCollection';
+import { reorderSubtasks } from '../../db/task-ordering';
+import { useCompletionActions } from '../../lib/use-completion-actions';
+import { useFlipList } from '../../lib/use-flip-list';
 
 interface SubTaskSectionProps {
   taskId: number;
   onChange?: () => void;
+  canAdd?: boolean;
 }
 
-export function SubTaskSection({ taskId, onChange }: SubTaskSectionProps) {
+export function SubTaskSection({ taskId, onChange, canAdd = true }: SubTaskSectionProps) {
+  const { t } = useT();
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newTitle, setNewTitle] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [pendingComplete, setPendingComplete] = useState<Set<number>>(new Set());
+  const [inlineEditId, setInlineEditId] = useState<number | null>(null);
+  const [inlineTitle, setInlineTitle] = useState('');
+  const [showComposer, setShowComposer] = useState(false);
+  const cancelInlineEditRef = useRef(false);
+  const inlineInputRef = useRef<HTMLInputElement>(null);
+  const addInputRef = useRef<HTMLInputElement>(null);
+  const { setSubtaskCompletion } = useCompletionActions();
   // Track dirty subtask edits so we don't lose them during DB reload
   const dirtyTitlesRef = useRef<Map<number, string>>(new Map());
   const dirtyNotesRef = useRef<Map<number, string>>(new Map());
@@ -34,7 +49,18 @@ export function SubTaskSection({ taskId, onChange }: SubTaskSectionProps) {
       }
       return s;
     });
-    setSubtasks(merged);
+    setSubtasks(
+      sortCompletedLast(
+        merged,
+        (subtask) => subtask.completed,
+        (subtask) => subtask.completedAt,
+        {
+          getSortOrder: (subtask) => subtask.sortOrder,
+          getCreatedAt: (subtask) => subtask.createdAt,
+          getId: (subtask) => subtask.id,
+        },
+      ),
+    );
   }, [taskId]);
 
   useEffect(() => {
@@ -48,14 +74,30 @@ export function SubTaskSection({ taskId, onChange }: SubTaskSectionProps) {
     },
     [],
   );
+  useEffect(() => {
+    if (inlineEditId === null) return;
+    inlineInputRef.current?.focus({ preventScroll: true });
+    inlineInputRef.current?.select();
+  }, [inlineEditId]);
+  useEffect(() => {
+    if (!showComposer) return;
+    addInputRef.current?.focus({ preventScroll: true });
+  }, [showComposer]);
+  useEffect(() => {
+    if (canAdd) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowComposer(false);
+    setNewTitle('');
+  }, [canAdd]);
 
   const addSubtask = async () => {
-    if (!newTitle.trim()) return;
+    if (!canAdd || !newTitle.trim()) return;
     const maxOrder = subtasks.reduce((max, s) => Math.max(max, s.sortOrder), 0);
     await db.subtasks.add({
       taskId,
       title: newTitle.trim(),
       completed: false,
+      completedAt: null,
       sortOrder: maxOrder + 1,
       dueDate: null,
       dueTime: null,
@@ -80,14 +122,14 @@ export function SubTaskSection({ taskId, onChange }: SubTaskSectionProps) {
 
   const handleCheck = async (s: Subtask) => {
     if (s.completed) {
-      await db.subtasks.update(s.id!, { completed: false });
+      await setSubtaskCompletion(s, false, loadSubtasks);
       setPendingComplete((prev) => {
         const n = new Set(prev);
         n.delete(s.id!);
         return n;
       });
     } else if (pendingComplete.has(s.id!)) {
-      await db.subtasks.update(s.id!, { completed: true });
+      await setSubtaskCompletion(s, true, loadSubtasks);
       setPendingComplete((prev) => {
         const n = new Set(prev);
         n.delete(s.id!);
@@ -96,8 +138,43 @@ export function SubTaskSection({ taskId, onChange }: SubTaskSectionProps) {
     } else {
       setPendingComplete((prev) => new Set(prev).add(s.id!));
     }
-    loadSubtasks();
+    if (!s.completed && !pendingComplete.has(s.id!)) await loadSubtasks();
     onChange?.();
+  };
+
+  const finishInlineEdit = async (subtask: Subtask) => {
+    if (cancelInlineEditRef.current) {
+      cancelInlineEditRef.current = false;
+      setInlineEditId(null);
+      return;
+    }
+    const title = inlineTitle.trim();
+    setInlineEditId(null);
+    if (!title || title === subtask.title) return;
+    await db.subtasks.update(subtask.id!, { title });
+    await loadSubtasks();
+    onChange?.();
+  };
+
+  const incompleteSubtasks = subtasks.filter((subtask) => !subtask.completed);
+  const completedSubtasks = subtasks.filter((subtask) => subtask.completed);
+  const skipFlipRef = useRef(false);
+  const flipRef = useFlipList<HTMLDivElement>(
+    subtasks.map((subtask) => `${subtask.id}:${subtask.completed}:${subtask.sortOrder}`).join('|'),
+    skipFlipRef,
+  );
+
+  const handleReorder = async (orderedIds: number[]) => {
+    skipFlipRef.current = true;
+    try {
+      await reorderSubtasks(taskId, orderedIds);
+      await loadSubtasks();
+      onChange?.();
+    } finally {
+      window.setTimeout(() => {
+        skipFlipRef.current = false;
+      }, 250);
+    }
   };
 
   /**
@@ -166,159 +243,188 @@ export function SubTaskSection({ taskId, onChange }: SubTaskSectionProps) {
     onChange?.();
   };
 
+  const renderSubtask = (s: Subtask) => (
+    <div className="detail-subtask-item">
+      <div className="detail-subtask-main">
+        <button
+          onClick={() => handleCheck(s)}
+          className={`detail-subtask-check ${
+            s.completed ? 'is-completed' : pendingComplete.has(s.id!) ? 'is-pending' : ''
+          }`}
+          aria-label={s.title}
+        >
+          {(s.completed || pendingComplete.has(s.id!)) && (
+            <Check size={10} className="text-white" />
+          )}
+        </button>
+        {inlineEditId === s.id ? (
+          <input
+            ref={inlineInputRef}
+            data-no-dnd
+            value={inlineTitle}
+            onChange={(event) => setInlineTitle(event.target.value)}
+            onBlur={() => void finishInlineEdit(s)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') {
+                cancelInlineEditRef.current = true;
+                setInlineTitle(s.title);
+                event.currentTarget.blur();
+              }
+            }}
+            className="detail-subtask-title-input"
+            aria-label={t('subtaskTitle')}
+          />
+        ) : (
+          <span
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              setInlineTitle(s.title);
+              setInlineEditId(s.id!);
+            }}
+            className={`detail-subtask-title ${
+              s.completed ? 'is-completed' : pendingComplete.has(s.id!) ? 'is-pending' : ''
+            }`}
+          >
+            {s.title}
+          </span>
+        )}
+        <button
+          onClick={() => setExpandedId(expandedId === s.id ? null : s.id!)}
+          className="detail-subtask-icon-button"
+          aria-label={expandedId === s.id ? t('collapseAdv') : t('advOptions')}
+        >
+          {expandedId === s.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </button>
+        <button
+          onClick={() => deleteSubtask(s.id!)}
+          className="detail-subtask-icon-button is-danger"
+          aria-label={t('delete')}
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      {expandedId === s.id && (
+        <div className="detail-subtask-expanded animate-slide-down">
+          <div className="detail-subtask-expanded-grid">
+            <div className="detail-subtask-expanded-title">
+              <label>{t('subtaskTitle')}</label>
+              <input
+                type="text"
+                value={s.title}
+                onChange={(e) => updateSubtaskField(s.id!, 'title', e.target.value)}
+                onCompositionStart={() => {
+                  composingRef.current = true;
+                }}
+                onCompositionEnd={(e) =>
+                  handleCompositionEndPersist(s.id!, 'title', (e.target as HTMLInputElement).value)
+                }
+                className="detail-subtask-field"
+              />
+            </div>
+            <div>
+              <label>{t('subtaskDate')}</label>
+              <input
+                type="date"
+                value={s.dueDate || ''}
+                onChange={(e) => updateFieldDebounced(s.id!, { dueDate: e.target.value || null })}
+                className="detail-subtask-field"
+              />
+            </div>
+            <div>
+              <label>{t('subtaskTime')}</label>
+              <input
+                type="time"
+                value={s.dueTime || ''}
+                onChange={(e) => updateFieldDebounced(s.id!, { dueTime: e.target.value || null })}
+                className="detail-subtask-field"
+              />
+            </div>
+          </div>
+          <div className="detail-subtask-notes">
+            <label>{t('notesLabel')}</label>
+            <input
+              type="text"
+              value={s.notes || ''}
+              onChange={(e) => updateSubtaskField(s.id!, 'notes', e.target.value)}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={(e) =>
+                handleCompositionEndPersist(s.id!, 'notes', (e.target as HTMLInputElement).value)
+              }
+              placeholder={t('supplementalNotes')}
+              className="detail-subtask-field"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const completed = subtasks.filter((s) => s.completed).length;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium text-gray-500">
-          子任务
+    <div ref={flipRef} className="detail-subtask-section">
+      <div className="detail-subtask-heading">
+        <h3>
+          <span>{t('subtaskLabel')}</span>
           {subtasks.length > 0 && (
-            <span className="ml-2 text-xs text-gray-400">
+            <span className="detail-subtask-count">
               {completed}/{subtasks.length}
             </span>
           )}
         </h3>
+        {canAdd && (
+          <button
+            type="button"
+            className="detail-subtask-add-trigger"
+            onClick={() => setShowComposer(true)}
+          >
+            <Plus size={14} />
+            {t('addSubtask3')}
+          </button>
+        )}
       </div>
 
-      {subtasks.map((s) => (
-        <div key={s.id} className="border border-gray-100 rounded-lg mb-2 overflow-hidden">
-          {/* Header row */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-gray-50">
-            <button
-              onClick={() => handleCheck(s)}
-              className={`flex-shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                s.completed
-                  ? 'bg-blue-500 border-blue-500'
-                  : pendingComplete.has(s.id!)
-                    ? 'bg-gray-300 border-gray-300'
-                    : 'border-gray-300 hover:border-gray-400'
-              }`}
-            >
-              {(s.completed || pendingComplete.has(s.id!)) && (
-                <Check size={10} className="text-white" />
-              )}
-            </button>
-            <span
-              className={`flex-1 text-sm transition-colors duration-300 ${
-                s.completed
-                  ? 'line-through text-gray-400'
-                  : pendingComplete.has(s.id!)
-                    ? 'text-gray-400'
-                    : 'text-gray-700'
-              }`}
-            >
-              {s.title}
-            </span>
-            <button
-              onClick={() => setExpandedId(expandedId === s.id ? null : s.id!)}
-              className="p-0.5 text-gray-400 hover:text-gray-600"
-            >
-              {expandedId === s.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
-            <button
-              onClick={() => deleteSubtask(s.id!)}
-              className="p-0.5 text-gray-400 hover:text-red-500"
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-
-          {/* Expanded detail */}
-          {expandedId === s.id && (
-            <div className="px-3 py-2 space-y-2 animate-slide-down">
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="text-xs text-gray-400 block mb-0.5">标题</label>
-                  <input
-                    type="text"
-                    value={s.title}
-                    onChange={(e) => updateSubtaskField(s.id!, 'title', e.target.value)}
-                    onCompositionStart={() => {
-                      composingRef.current = true;
-                    }}
-                    onCompositionEnd={(e) =>
-                      handleCompositionEndPersist(
-                        s.id!,
-                        'title',
-                        (e.target as HTMLInputElement).value,
-                      )
-                    }
-                    className="w-full px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-0.5">日期</label>
-                  <input
-                    type="date"
-                    value={s.dueDate || ''}
-                    onChange={(e) =>
-                      updateFieldDebounced(s.id!, { dueDate: e.target.value || null })
-                    }
-                    className="w-28 px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-0.5">时间</label>
-                  <input
-                    type="time"
-                    value={s.dueTime || ''}
-                    onChange={(e) =>
-                      updateFieldDebounced(s.id!, { dueTime: e.target.value || null })
-                    }
-                    className="w-20 px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-0.5">备注</label>
-                <input
-                  type="text"
-                  value={s.notes || ''}
-                  onChange={(e) => updateSubtaskField(s.id!, 'notes', e.target.value)}
-                  onCompositionStart={() => {
-                    composingRef.current = true;
-                  }}
-                  onCompositionEnd={(e) =>
-                    handleCompositionEndPersist(
-                      s.id!,
-                      'notes',
-                      (e.target as HTMLInputElement).value,
-                    )
-                  }
-                  placeholder="补充说明..."
-                  className="w-full px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-
-      {/* Add new */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-          }}
-          onKeyDown={handleAddKeyDown}
-          placeholder="添加子任务..."
-          className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+      <div className="detail-subtask-list">
+        <SortableCollection
+          items={incompleteSubtasks}
+          getId={(subtask) => subtask.id!}
+          onReorder={handleReorder}
+          renderItem={renderSubtask}
+          ariaLabel={t('subtaskLabel')}
         />
-        <button
-          onClick={addSubtask}
-          disabled={!newTitle.trim()}
-          className="px-3 py-1.5 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          <Plus size={14} />
-        </button>
+        {completedSubtasks.map((subtask) => (
+          <div key={subtask.id} data-flip-key={subtask.id}>
+            {renderSubtask(subtask)}
+          </div>
+        ))}
       </div>
+
+      {canAdd && showComposer && (
+        <div className="detail-subtask-composer animate-slide-down">
+          <input
+            ref={addInputRef}
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false;
+            }}
+            onKeyDown={handleAddKeyDown}
+            placeholder={t('addSubtask3')}
+          />
+          <button onClick={addSubtask} disabled={!newTitle.trim()} aria-label={t('addSubtask3')}>
+            <Plus size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -61,7 +61,7 @@ export function solarToLunar(solarDate: string): LunarInfo | null {
 export function lunarMonthDay(solarDate: string): string {
   const info = solarToLunar(solarDate);
   if (!info) return '';
-  return `${info.monthName}月${info.dayName}`;
+  return `${info.monthName}${info.dayName}`;
 }
 
 // --- Get holidays for a specific date ---
@@ -72,10 +72,7 @@ export interface DateHoliday {
   country: CountryCode;
 }
 
-export function getHolidaysForDate(
-  solarDate: string,
-  country: CountryCode
-): DateHoliday[] {
+export function getHolidaysForDate(solarDate: string, country: CountryCode): DateHoliday[] {
   const [y, m, d] = solarDate.split('-').map(Number);
   const defs = HOLIDAYS[country] || [];
   const results: DateHoliday[] = [];
@@ -125,7 +122,7 @@ export interface CalendarDay {
   isWeekend: boolean;
   holidays: DateHoliday[];
   markers: CalendarMarker[];
-  tasks: Task[];            // 该日期截止的任务
+  tasks: Task[]; // 该日期截止的任务
   solarTerm?: string;
 }
 
@@ -134,7 +131,10 @@ function getHolidaysForCountries(date: string, countries: Set<CountryCode>): Dat
   const seen = new Set<string>();
   for (const c of countries) {
     for (const h of getHolidaysForDate(date, c)) {
-      if (!seen.has(h.name)) { seen.add(h.name); results.push(h); }
+      if (!seen.has(h.name)) {
+        seen.add(h.name);
+        results.push(h);
+      }
     }
   }
   return results;
@@ -146,7 +146,7 @@ export function generateCalendarMonth(
   mode: CalendarMode,
   selectedCountries: Set<CountryCode>,
   getMarkersForDate: (date: string) => CalendarMarker[],
-  allTasks: Task[]
+  allTasks: Task[],
 ): CalendarDay[][] {
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfWeek(year, month);
@@ -169,7 +169,8 @@ export function generateCalendarMonth(
     currentWeek.push({
       dateKey,
       solarDay: d,
-      lunarText: mode === 'lunar' ? (lunarInfo ? `${lunarInfo.monthName}月${lunarInfo.dayName}` : '') : '',
+      lunarText:
+        mode === 'lunar' ? (lunarInfo ? `${lunarInfo.monthName}${lunarInfo.dayName}` : '') : '',
       isToday: dateKey === today,
       isCurrentMonth: false,
       isWeekend: false,
@@ -190,7 +191,8 @@ export function generateCalendarMonth(
     currentWeek.push({
       dateKey,
       solarDay: d,
-      lunarText: mode === 'lunar' ? (lunarInfo ? `${lunarInfo.monthName}月${lunarInfo.dayName}` : '') : '',
+      lunarText:
+        mode === 'lunar' ? (lunarInfo ? `${lunarInfo.monthName}${lunarInfo.dayName}` : '') : '',
       isToday: dateKey === today,
       isCurrentMonth: true,
       isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
@@ -206,29 +208,29 @@ export function generateCalendarMonth(
     }
   }
 
-  // Next month padding
-  const remainingDays = 7 - currentWeek.length;
-  const nextMonth = month === 12 ? 1 : month + 1;
-  const nextYear = month === 12 ? year + 1 : year;
-  for (let d = 1; d <= remainingDays; d++) {
-    const dateKey = formatDateKey(nextYear, nextMonth, d);
-    const lunarInfo = solarToLunar(dateKey);
-    const dayTasks = allTasks.filter((t) => !t.completedAt && t.dueDate === dateKey);
-    currentWeek.push({
-      dateKey,
-      solarDay: d,
-      lunarText: mode === 'lunar' ? (lunarInfo ? `${lunarInfo.monthName}月${lunarInfo.dayName}` : '') : '',
-      isToday: dateKey === today,
-      isCurrentMonth: false,
-      isWeekend: false,
-      holidays: mode === 'solar' ? getHolidaysForCountries(dateKey, selectedCountries) : [],
-      markers: getMarkersForDate(dateKey),
-      tasks: dayTasks,
-      solarTerm: lunarInfo?.solarTerm,
-    });
-  }
-
+  // Next month padding: only pad if the current week is partially filled
   if (currentWeek.length > 0) {
+    const remainingDays = 7 - currentWeek.length;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    for (let d = 1; d <= remainingDays; d++) {
+      const dateKey = formatDateKey(nextYear, nextMonth, d);
+      const lunarInfo = solarToLunar(dateKey);
+      const dayTasks = allTasks.filter((t) => !t.completedAt && t.dueDate === dateKey);
+      currentWeek.push({
+        dateKey,
+        solarDay: d,
+        lunarText:
+          mode === 'lunar' ? (lunarInfo ? `${lunarInfo.monthName}${lunarInfo.dayName}` : '') : '',
+        isToday: dateKey === today,
+        isCurrentMonth: false,
+        isWeekend: false,
+        holidays: mode === 'solar' ? getHolidaysForCountries(dateKey, selectedCountries) : [],
+        markers: getMarkersForDate(dateKey),
+        tasks: dayTasks,
+        solarTerm: lunarInfo?.solarTerm,
+      });
+    }
     weeks.push(currentWeek);
   }
 
@@ -236,10 +238,6 @@ export function generateCalendarMonth(
 }
 
 // --- Calendar navigation ---
-
-export function getMonthYearLabel(year: number, month: number): string {
-  return `${year}年 ${month}月`;
-}
 
 export function prevMonth(year: number, month: number): [number, number] {
   if (month === 1) return [year - 1, 12];

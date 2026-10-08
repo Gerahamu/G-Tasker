@@ -2,27 +2,30 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCalendarStore } from '../../stores/calendar-store';
 import { useTaskStore } from '../../stores/task-store';
-import { shouldShowLunar, useT, useCalendarCountry } from '../../lib/i18n';
+import { useUIStore } from '../../stores/ui-store';
+import { localeFor, shouldShowLunar, useT, useCalendarCountry } from '../../lib/i18n';
 import { CalendarGrid } from './CalendarGrid';
 import { MarkerDialog } from './MarkerDialog';
-import {
-  generateCalendarMonth,
-  prevMonth,
-  nextMonth,
-  getMonthYearLabel,
-} from '../../lib/calendar-utils';
+import { TimeMarkDialog } from './TimeMarkDialog';
+import { db } from '../../db/database';
+import { generateCalendarMonth, prevMonth, nextMonth } from '../../lib/calendar-utils';
 import { getCountryName } from '../../lib/i18n';
 import { COUNTRY_NAMES } from '../../lib/holiday-data';
-import type { CalendarMode, CountryCode, CalendarMarker } from '../../lib/types';
-import { ChevronLeft, ChevronRight, Sun, MoonStar } from 'lucide-react';
+import type { CalendarMode, CountryCode, CalendarMarker, TimeMark } from '../../lib/types';
+import { ChevronLeft, ChevronRight, ChevronDown, Sun, MoonStar } from 'lucide-react';
 
 export function CalendarPage() {
   const { t, lang } = useT();
   const navigate = useNavigate();
+  const setCreateTaskRequest = useUIStore((s) => s.setCreateTaskRequest);
+  const setShowCreateModal = useUIStore((s) => s.setShowCreateModal);
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [mode, setMode] = useState<CalendarMode>('solar');
+  const [timeMarks, setTimeMarks] = useState<TimeMark[]>([]);
+  const [timeMarkDate, setTimeMarkDate] = useState('');
+  const [editingTimeMark, setEditingTimeMark] = useState<TimeMark | null>(null);
 
   const markers = useCalendarStore((s) => s.markers);
   // ✅ 使用 React Context 替代 Zustand 获取日历国家
@@ -33,6 +36,14 @@ export function CalendarPage() {
     () => new Set([defaultCountry]),
   );
   const [showCountryPicker, setShowCountryPicker] = useState(false);
+
+  const countryButtonLabel = useMemo(() => {
+    const codes = Array.from(selectedCountries);
+    if (codes.length === 0) return t('selectedCountries', { n: 0 });
+    const firstCountry = getCountryName(codes[0], lang);
+    if (codes.length === 1) return firstCountry;
+    return `${firstCountry} +${codes.length - 1}`;
+  }, [selectedCountries, lang, t]);
 
   const toggleCountry = (code: CountryCode) => {
     const next = new Set(selectedCountries);
@@ -62,24 +73,56 @@ export function CalendarPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogDate, setDialogDate] = useState('');
   const [editingMarker, setEditingMarker] = useState<CalendarMarker | null>(null);
+  useEffect(() => {
+    db.timeMarks.toArray().then(setTimeMarks);
+  }, []);
+  const saveTimeMark = async (input: Omit<TimeMark, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString();
+    const shouldCloseDateDetail = dialogOpen && !editingTimeMark;
+    if (editingTimeMark?.id) {
+      await db.timeMarks.update(editingTimeMark.id, { ...input, updatedAt: now });
+      setTimeMarks((marks) =>
+        marks.map((mark) =>
+          mark.id === editingTimeMark.id ? { ...mark, ...input, updatedAt: now } : mark,
+        ),
+      );
+    } else {
+      const id = await db.timeMarks.add({ ...input, createdAt: now, updatedAt: now });
+      setTimeMarks((marks) => [...marks, { ...input, id, createdAt: now, updatedAt: now }]);
+    }
+    setTimeMarkDate('');
+    setEditingTimeMark(null);
+    if (shouldCloseDateDetail) setDialogOpen(false);
+  };
+  const deleteTimeMark = async () => {
+    if (!editingTimeMark?.id) return;
+    await db.timeMarks.delete(editingTimeMark.id);
+    setTimeMarks((marks) => marks.filter((mark) => mark.id !== editingTimeMark.id));
+    setTimeMarkDate('');
+    setEditingTimeMark(null);
+  };
 
   // Year/month picker
   const [showPicker, setShowPicker] = useState(false);
   const [pickerYear, setPickerYear] = useState(year);
   const MONTHS = [
-    '1月',
-    '2月',
-    '3月',
-    '4月',
-    '5月',
-    '6月',
-    '7月',
-    '8月',
-    '9月',
-    '10月',
-    '11月',
-    '12月',
-  ];
+    'jan',
+    'feb',
+    'mar',
+    'apr',
+    'may',
+    'jun',
+    'jul',
+    'aug',
+    'sep',
+    'oct',
+    'nov',
+    'dec',
+  ] as const;
+  const monthYearLabel = new Intl.DateTimeFormat(localeFor(lang), {
+    year: 'numeric',
+    month: 'long',
+  }).format(new Date(year, month - 1, 1));
 
   useEffect(() => {
     loadMarkers();
@@ -111,6 +154,11 @@ export function CalendarPage() {
   };
 
   // ✅ 点击日期数字 → 直接新建标记
+  const handleAddTask = useCallback((dateKey: string) => {
+    setCreateTaskRequest({ initialDate: dateKey });
+    setShowCreateModal(true);
+  }, [setCreateTaskRequest, setShowCreateModal]);
+
   const handleAddMarker = useCallback((dateKey: string) => {
     setDialogDate(dateKey);
     setEditingMarker(null);
@@ -156,8 +204,12 @@ export function CalendarPage() {
       {/* Header: month navigation */}
       <div className="calendar-toolbar">
         <div className="calendar-navigation">
-          <button onClick={goToPrevMonth} className="icon-button">
-            <ChevronLeft size={20} />
+          <button
+            onClick={goToPrevMonth}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-black/[0.04] active:bg-black/[0.07] transition-colors"
+            aria-label={t('previousMonth')}
+          >
+            <ChevronLeft size={18} />
           </button>
           <button
             onClick={() => {
@@ -166,24 +218,26 @@ export function CalendarPage() {
             }}
             className="calendar-month-title"
           >
-            {getMonthYearLabel(year, month)}
+            {monthYearLabel}
           </button>
 
           {/* Year/Month Picker Popup */}
           {showPicker && (
-            <div className="floating-panel absolute top-12 left-0 z-30 p-4 w-72 animate-modal-in">
+            <div className="floating-panel absolute top-12 left-0 z-30 p-4 w-72 rounded-[16px] bg-white/95 backdrop-blur-xl border border-black/[0.06] shadow-[0_12px_40px_rgba(0,0,0,0.09)] animate-modal-in">
               {/* Year selector */}
               <div className="flex items-center justify-between mb-3">
                 <button
                   onClick={() => setPickerYear(pickerYear - 1)}
-                  className="p-1 hover:bg-gray-100 rounded text-gray-500"
+                  aria-label={t('previousYear')}
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/[0.05] text-gray-600 transition-colors"
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="text-sm font-bold text-gray-800">{pickerYear}</span>
+                <span className="text-sm font-semibold text-gray-800">{pickerYear}</span>
                 <button
                   onClick={() => setPickerYear(pickerYear + 1)}
-                  className="p-1 hover:bg-gray-100 rounded text-gray-500"
+                  aria-label={t('nextYear')}
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/[0.05] text-gray-600 transition-colors"
                 >
                   <ChevronRight size={16} />
                 </button>
@@ -198,22 +252,26 @@ export function CalendarPage() {
                       setYear(pickerYear);
                       setShowPicker(false);
                     }}
-                    className={`py-2 rounded-lg text-xs font-medium transition-colors ${
+                    className={`py-2 rounded-[8px] text-xs font-medium transition-colors ${
                       month === i + 1 && year === pickerYear
-                        ? 'bg-blue-500 text-white'
-                        : 'text-gray-600 hover:bg-gray-100'
+                        ? 'bg-[#20222a] text-white shadow-xs'
+                        : 'text-gray-600 hover:bg-black/[0.04]'
                     }`}
                   >
-                    {m}
+                    {t(m)}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <button onClick={goToNextMonth} className="icon-button">
-            <ChevronRight size={20} />
+          <button
+            onClick={goToNextMonth}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-black/[0.04] active:bg-black/[0.07] transition-colors"
+            aria-label={t('nextMonth')}
+          >
+            <ChevronRight size={18} />
           </button>
-          <button onClick={goToToday} className="btn btn-secondary calendar-today">
+          <button onClick={goToToday} className="calendar-today">
             {t('todayBtn')}
           </button>
         </div>
@@ -221,28 +279,33 @@ export function CalendarPage() {
         <div className="calendar-options">
           {/* Calendar mode toggle — 非农历国家不显示 */}
           {showLunarToggle && (
-            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            <div className="flex items-center h-[31px] bg-black/[0.04] rounded-[10px] p-[2.5px] text-xs font-medium">
               <button
                 onClick={() => setMode('solar')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                aria-pressed={mode === 'solar'}
+                className={`flex items-center gap-1.5 h-full px-2.5 rounded-[8px] transition-all text-xs ${
                   mode === 'solar'
-                    ? 'bg-white text-gray-800 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.06)] font-medium'
+                    : 'text-gray-500/80 hover:text-gray-700 font-normal'
                 }`}
               >
-                <Sun size={14} />
-                {t('solar')}
+                <Sun size={13} className={mode === 'solar' ? 'text-gray-700' : 'text-gray-400'} />
+                <span>{t('solar')}</span>
               </button>
               <button
                 onClick={() => setMode('lunar')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                aria-pressed={mode === 'lunar'}
+                className={`flex items-center gap-1.5 h-full px-2.5 rounded-[8px] transition-all text-xs ${
                   mode === 'lunar'
-                    ? 'bg-white text-gray-800 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-gray-800 shadow-[0_1px_3px_rgba(0,0,0,0.06)] font-medium'
+                    : 'text-gray-500/80 hover:text-gray-700 font-normal'
                 }`}
               >
-                <MoonStar size={14} />
-                {t('lunar')}
+                <MoonStar
+                  size={13}
+                  className={mode === 'lunar' ? 'text-gray-700' : 'text-gray-400'}
+                />
+                <span>{t('lunar')}</span>
               </button>
             </div>
           )}
@@ -251,24 +314,27 @@ export function CalendarPage() {
           <div className="relative">
             <button
               onClick={() => setShowCountryPicker(!showCountryPicker)}
-              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
+              aria-label={t('selectedCountries', { n: selectedCountries.size })}
+              className="h-[31px] px-3 rounded-[10px] bg-white/60 hover:bg-white/90 border border-black/[0.05] shadow-[0_1px_2px_rgba(0,0,0,0.02)] text-[12.5px] font-medium text-gray-700 hover:text-gray-900 transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              🌍 {selectedCountries.size}个国家
+              <span>🌎</span>
+              <span>{countryButtonLabel}</span>
+              <ChevronDown size={13} className="text-gray-400 ml-0.5" />
             </button>
             {showCountryPicker && (
-              <div className="floating-panel absolute right-0 top-full mt-1 p-2 z-30 w-52 max-h-64 overflow-y-auto animate-scale-in">
+              <div className="floating-panel absolute right-0 top-full mt-1.5 p-2 z-30 w-52 max-h-64 overflow-y-auto rounded-[14px] bg-white/95 backdrop-blur-xl border border-black/[0.06] shadow-[0_12px_40px_rgba(0,0,0,0.09)] animate-scale-in">
                 {(Object.keys(COUNTRY_NAMES) as CountryCode[]).map((code) => (
                   <label
                     key={code}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer text-sm"
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] hover:bg-black/[0.04] cursor-pointer text-xs font-medium text-gray-700 transition-colors"
                   >
                     <input
                       type="checkbox"
                       checked={selectedCountries.has(code)}
                       onChange={() => toggleCountry(code)}
-                      className="w-3.5 h-3.5 rounded accent-blue-500"
+                      className="w-3.5 h-3.5 rounded accent-[#20222a]"
                     />
-                    <span className="text-gray-700">{getCountryName(code, lang)}</span>
+                    <span>{getCountryName(code, lang)}</span>
                   </label>
                 ))}
               </div>
@@ -283,10 +349,15 @@ export function CalendarPage() {
         mode={mode}
         showSolarTerm={selectedCountries.has('CN')}
         onAddMarker={handleAddMarker}
+        onAddTask={handleAddTask}
         onEditMarker={handleEditMarker}
         onEditTask={(id) => navigate(`/app/task/${id}`)}
+        timeMarks={timeMarks}
+        onEditTimeMark={(mark) => {
+          setEditingTimeMark(mark);
+          setTimeMarkDate(mark.startDate);
+        }}
       />
-
       {/* Marker dialog */}
       <MarkerDialog
         open={dialogOpen}
@@ -298,7 +369,30 @@ export function CalendarPage() {
           setDialogOpen(false);
           setEditingMarker(null);
         }}
+        timeMarks={timeMarks.filter(
+          (mark) => mark.startDate <= dialogDate && mark.endDate >= dialogDate,
+        )}
+        onAddTimeMark={() => {
+          setTimeMarkDate(dialogDate);
+          setEditingTimeMark(null);
+        }}
+        onEditTimeMark={(mark) => {
+          setTimeMarkDate(dialogDate);
+          setEditingTimeMark(mark);
+        }}
       />
+      {timeMarkDate && (
+        <TimeMarkDialog
+          mark={editingTimeMark}
+          date={timeMarkDate}
+          onSave={saveTimeMark}
+          onDelete={deleteTimeMark}
+          onClose={() => {
+            setTimeMarkDate('');
+            setEditingTimeMark(null);
+          }}
+        />
+      )}
     </div>
   );
 }

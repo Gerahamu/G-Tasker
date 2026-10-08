@@ -3,14 +3,16 @@ import type { Toast, CountryCode } from '../lib/types';
 
 export type AppLanguage = 'auto' | 'zh' | 'en' | 'ja';
 
-const LANGUAGE_LABELS: Record<AppLanguage, string> = {
-  auto: '跟随设备',
-  zh: '中文',
-  en: 'English',
-  ja: '日本語',
-};
+const isMobileViewport =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(max-width: 767px)').matches;
 
-export { LANGUAGE_LABELS };
+export interface CreateTaskRequest {
+  initialTitle?: string;
+  initialDate?: string;
+  onCreated?: () => void | Promise<void>;
+}
 
 interface UIStoreState {
   sidebarOpen: boolean;
@@ -21,16 +23,28 @@ interface UIStoreState {
   toasts: Toast[];
 
   showCreateModal: boolean;
+  showCreateList: boolean;
+  showCreateTag: boolean;
+  showCreatePlan: boolean;
   presetListId: number | null;
+  createTaskRequest: CreateTaskRequest | null;
   setShowCreateModal: (show: boolean) => void;
+  setShowCreateList: (show: boolean) => void;
+  setShowCreateTag: (show: boolean) => void;
+  setShowCreatePlan: (show: boolean) => void;
   setPresetListId: (id: number | null) => void;
+  setCreateTaskRequest: (request: CreateTaskRequest | null) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setActiveListId: (id: number | null) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   setLanguage: (lang: AppLanguage) => void;
   setCalendarCountry: (country: CountryCode | 'auto') => void;
-  addToast: (message: string, type: Toast['type']) => void;
+  addToast: (
+    message: string,
+    type: Toast['type'],
+    options?: Pick<Toast, 'actionLabel' | 'onAction'> & { durationMs?: number },
+  ) => void;
   removeToast: (id: string) => void;
 }
 
@@ -38,17 +52,30 @@ interface UIStoreState {
 // 这样用户才能选择具体语言来触发"确认修改"按钮
 
 export const useUIStore = create<UIStoreState>((set, get) => ({
-  sidebarOpen: true,
+  sidebarOpen: !isMobileViewport,
   showCreateModal: false,
+  showCreateList: false,
+  showCreateTag: false,
+  showCreatePlan: false,
   presetListId: null,
+  createTaskRequest: null,
   activeListId: null,
   theme: 'light',
   language: 'auto', // ✅ 默认跟随设备，运行时解析
   calendarCountry: 'auto',
   toasts: [],
 
-  setShowCreateModal: (show) => set({ showCreateModal: show }),
+  setShowCreateModal: (show) =>
+    set(
+      show
+        ? { showCreateModal: true }
+        : { showCreateModal: false, presetListId: null, createTaskRequest: null },
+    ),
+  setShowCreateList: (show) => set({ showCreateList: show }),
+  setShowCreateTag: (show) => set({ showCreateTag: show }),
+  setShowCreatePlan: (show) => set({ showCreatePlan: show }),
   setPresetListId: (id) => set({ presetListId: id }),
+  setCreateTaskRequest: (request) => set({ createTaskRequest: request }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setActiveListId: (id) => set({ activeListId: id }),
@@ -58,12 +85,23 @@ export const useUIStore = create<UIStoreState>((set, get) => ({
   },
   setLanguage: (language) => set({ language }),
   setCalendarCountry: (calendarCountry) => set({ calendarCountry }),
-  addToast: (message, type) => {
+  addToast: (message, type, options) => {
     const id = Date.now().toString() + Math.random().toString(36).slice(2);
-    set((s) => ({ toasts: [...s.toasts, { id, message, type }] }));
+    set((s) => ({
+      toasts: [
+        ...s.toasts,
+        {
+          id,
+          message,
+          type,
+          actionLabel: options?.actionLabel,
+          onAction: options?.onAction,
+        },
+      ],
+    }));
     setTimeout(() => {
       get().removeToast(id);
-    }, 3000);
+    }, options?.durationMs ?? 3000);
   },
   removeToast: (id) => {
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));

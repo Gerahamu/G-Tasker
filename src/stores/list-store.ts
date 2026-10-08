@@ -1,6 +1,19 @@
 import { create } from 'zustand';
 import { db } from '../db/database';
 import type { TaskList } from '../lib/types';
+import { acknowledgeSaved, createDirtySaver } from '../lib/dirty-save';
+import { deleteTasksCascade, taskCascadeTables } from '../db/task-operations';
+import { useTaskStore } from './task-store';
+
+const saveLists: () => Promise<void> = createDirtySaver<TaskList>({
+  snapshot: () => ({ records: useListStore.getState().lists, dirtyIds: useListStore.getState().dirtyIds }),
+  persist: records => db.transaction('rw', db.taskLists, async () => {
+    for (const record of records) await db.taskLists.update(record.id!, record);
+  }),
+  acknowledge: records => useListStore.setState(state => ({
+    dirtyIds: acknowledgeSaved(state.dirtyIds, state.lists, records),
+  })),
+});
 
 interface ListStoreState {
   lists: TaskList[];
@@ -24,7 +37,8 @@ export const useListStore = create<ListStoreState>((set, get) => ({
   loadLists: async () => {
     set({ isLoading: true });
     const lists = await db.taskLists.orderBy('sortOrder').toArray();
-    set({ lists, isLoading: false });
+    set(state => ({ lists: lists.map(list => state.dirtyIds.has(list.id!)
+      ? state.lists.find(current => current.id === list.id) ?? list : list), isLoading: false }));
   },
 
   getList: (id: number) => {
@@ -32,25 +46,27 @@ export const useListStore = create<ListStoreState>((set, get) => ({
   },
 
   addList: async (listInput) => {
-    // ✅ 检查重名
-    const duplicate = get().lists.find(
-      (l) => l.name === listInput.name && !l.isSmartList
-    );
-    if (duplicate) return duplicate.id!;
-
-    const now = new Date().toISOString();
-    const maxOrder = get().lists.reduce(
-      (max, l) => Math.max(max, l.sortOrder),
-      0
-    );
-    const list = {
-      ...listInput,
-      sortOrder: maxOrder + 1,
-      createdAt: now,
-    } as TaskList;
-    const id = await db.taskLists.add(list);
-    set((s) => ({ lists: [...s.lists, { ...list, id }] }));
-    return id as number;
+    const list = await db.transaction('rw', db.taskLists, async () => {
+      const existing = await db.taskLists
+        .filter((candidate) => candidate.name === listInput.name && !candidate.isSmartList)
+        .first();
+      if (existing) return existing;
+      const lists = await db.taskLists.toArray();
+      const maxOrder = lists.reduce((max, candidate) => Math.max(max, candidate.sortOrder), 0);
+      const created = {
+        ...listInput,
+        sortOrder: maxOrder + 1,
+        createdAt: new Date().toISOString(),
+      } as TaskList;
+      const id = (await db.taskLists.add(created)) as number;
+      return { ...created, id };
+    });
+    set((state) => ({
+      lists: state.lists.some((candidate) => candidate.id === list.id)
+        ? state.lists
+        : [...state.lists, list],
+    }));
+    return list.id!;
   },
 
   updateList: (id: number, patch: Partial<TaskList>) => {
@@ -61,24 +77,28 @@ export const useListStore = create<ListStoreState>((set, get) => ({
   },
 
   deleteList: async (id: number) => {
-    await db.taskLists.delete(id);
-    await db.tasks.where('listId').equals(id).delete();
-    set((s) => ({ lists: s.lists.filter((l) => l.id !== id) }));
+    const deletedIds = await db.transaction('rw', [db.taskLists, ...taskCascadeTables], async () => {
+      const taskIds = (await db.tasks.where('listId').equals(id).primaryKeys()).filter(
+        (taskId): taskId is number => typeof taskId === 'number',
+      );
+      const removed = await deleteTasksCascade(taskIds);
+      await db.taskLists.delete(id);
+      return removed;
+    });
+    const deleted = new Set(deletedIds);
+    set((s) => {
+      const dirtyIds = new Set(s.dirtyIds);
+      dirtyIds.delete(id);
+      return { lists: s.lists.filter((l) => l.id !== id), dirtyIds };
+    });
+    useTaskStore.setState((state) => {
+      const dirtyIds = new Set(state.dirtyIds);
+      for (const taskId of deleted) dirtyIds.delete(taskId);
+      return { tasks: state.tasks.filter((task) => !deleted.has(task.id!)), dirtyIds };
+    });
   },
 
-  saveDirtyLists: async () => {
-    const { dirtyIds, lists } = get();
-    if (dirtyIds.size === 0) return;
-    const ops: Promise<unknown>[] = [];
-    for (const id of dirtyIds) {
-      const list = lists.find((l) => l.id === id);
-      if (list) {
-        ops.push(db.taskLists.put(list));
-      }
-    }
-    await Promise.all(ops);
-    set({ dirtyIds: new Set() });
-  },
+  saveDirtyLists: saveLists,
 
   getUserLists: () => {
     return get().lists.filter((l) => !l.isSmartList);

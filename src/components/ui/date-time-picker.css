@@ -1,0 +1,163 @@
+.gt-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.gt-picker-trigger svg {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+.gt-picker-placeholder {
+  color: var(--color-text-secondary);
+}
+.gt-picker-panel {
+  position: fixed;
+  margin: 0;
+  width: min(296px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--gt-material-stroke);
+  border-radius: var(--gt-radius-floating);
+  color: var(--color-text);
+  background: var(--gt-content-surface);
+  box-shadow:
+    0 14px 44px rgb(28 30 38 / 16%),
+    0 2px 8px rgb(28 30 38 / 6%);
+  font-size: 13px;
+  font-family: inherit;
+}
+.gt-picker-caption {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  margin-bottom: 14px;
+}
+.gt-picker-month {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.gt-picker-month select {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  font-weight: 600;
+}
+.gt-picker-month input {
+  width: 58px;
+  background: transparent;
+  font-weight: 600;
+}
+.gt-picker-panel button {
+  cursor: pointer;
+  border-radius: var(--gt-radius-control);
+  transition: background-color 120ms;
+}
+.gt-picker-month button {
+  padding: 6px;
+}
+.gt-picker-panel button:hover {
+  background: var(--gt-accent-soft);
+}
+.gt-picker-panel :focus-visible {
+  outline: 2px solid var(--gt-focus-ring-color);
+  outline-offset: 2px;
+}
+.gt-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.gt-picker-grid button {
+  height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+.gt-picker-weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  padding: 5px 0 9px;
+}
+.gt-picker-muted {
+  opacity: 0.38;
+}
+.gt-picker-panel button[aria-current='date'] {
+  box-shadow: inset 0 0 0 1px var(--gt-accent);
+}
+.gt-picker-panel button[aria-pressed='true'] {
+  background: var(--gt-accent);
+  color: var(--gt-accent-contrast);
+  opacity: 1;
+  font-weight: 600;
+}
+.gt-picker-footer {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--gt-material-stroke);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.gt-picker-footer button {
+  padding: 7px 12px;
+}
+.gt-picker-action {
+  color: var(--gt-accent-foreground);
+  background: var(--gt-accent-soft);
+  font-weight: 600;
+}
+.gt-picker-time-display {
+  text-align: center;
+  font-size: 30px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  margin: 0 0 12px;
+}
+.gt-picker-time-display span {
+  color: var(--color-text-secondary);
+  padding: 0 8px;
+}
+.gt-picker-time-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.gt-picker-scroll {
+  height: 178px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 3px;
+  border-radius: var(--gt-radius-content);
+  background: var(--color-bg-hover);
+}
+.gt-picker-scroll button {
+  display: block;
+  width: 100%;
+  height: 34px;
+  margin-bottom: 3px;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gt-picker-panel button {
+    transition: none;
+  }
+}
+.gt-datetime-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px;
+  gap: 8px;
+}
+.gt-picker-trigger:disabled {
+  color: var(--color-text-disabled);
+  opacity: 0.55;
+  cursor: not-allowed;
+}

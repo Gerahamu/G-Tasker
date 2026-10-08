@@ -1,192 +1,73 @@
 <div align="center">
-  <img src="./public/favicon.svg" alt="G-Tasker Logo" width="72" height="72" />
+  <img src="public/favicon.svg" alt="G-Tasker icon" width="72" height="72" />
 
-# G-Tasker
+  # G-Tasker
 
-**一个本地优先、简洁完整的个人任务与时间管理工作台。**
+  **A local-first workspace for tasks and time.**
 
-任务、灵感、备忘录、计划、日历与时钟，都集中在一个响应式 Web 应用中。
+  Keep the work you need to do, the ideas you want to keep, and the time you have in one place.
 
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
-![IndexedDB](https://img.shields.io/badge/Data-IndexedDB-5B5BD6)
+  [**Download v0.9.0 for macOS (Apple Silicon)**](https://github.com/Gerahamu/G-Tasker/releases/download/v0.9.0/G-Tasker-0.9.0-macOS-arm64.dmg) · [Release notes](https://github.com/Gerahamu/G-Tasker/releases/tag/v0.9.0)
 </div>
 
-## 简介
+## About this beta
 
-G-Tasker 是一款面向个人使用的效率管理应用。它将传统任务清单与灵感收集、备忘录、时间规划、日历和时钟工具整合在同一套界面中。
+G-Tasker is a personal planning app built around local data. Tasks, lists, notes, plans, and clocks live in one desktop window. The app does not require an account or a server for its core features. Business data is stored on your Mac through IndexedDB; preferences use local storage.
 
-应用采用本地优先架构：任务及主要业务数据保存在浏览器的 IndexedDB 中，常用偏好保存在 localStorage 中，不依赖远程后端即可运行。
+**v0.9.0 macOS Public Beta** is the first desktop download published from the current Electron codebase. The previous v0.2.0 release represented an older web-only version and remains available in the release history.
 
-## 主要功能
+## A look inside
 
-### 任务管理
+These are screenshots of the running v0.9.0 interface in a fresh profile. They contain demonstration data only.
 
-- 今天、已计划、全部任务、已标记和逾期等智能列表
-- 自定义任务列表
-- 高、中、低优先级
-- 标签分类与按标签检索
-- 截止日期、截止时间和高级日期设置
-- 子任务与任务备注
-- 草稿和自动保存
-- 任务完成确认及已完成任务分组
+| Tasks | Calendar |
+| --- | --- |
+| ![G-Tasker task view](docs/screenshots/tasks.png) | ![G-Tasker calendar view](docs/screenshots/calendar.png) |
 
-### 灵感箱与备忘录
+## What you can do
 
-- 快速记录尚未整理的想法
-- 将灵感转换为任务或备忘录
-- 创建、编辑、置顶和删除备忘录
-- 在全局搜索中统一查找灵感与备忘录
+- **Organize tasks:** use Today, Scheduled, All, Flagged, and Overdue views; create custom lists and tags; set priority, dates, reminders, recurrence, subtasks, and notes. Task drafts let you pause and resume creation.
+- **Capture and plan:** keep quick ideas and memos, search across your workspace, and create day, week, month, or custom-period plans with time blocks.
+- **Work with time:** browse a calendar with date markers, holidays, and lunar dates where applicable; use world clocks, a stopwatch, countdowns, and alarms.
+- **Make it yours:** choose light, dark, or system appearance, adjust text size, and use the Chinese, English, or Japanese interface. Export a JSON backup from Settings.
+- **Use desktop conveniences:** the macOS app provides a quick memo window and integrates supported reminders with macOS notifications.
 
-### 时间规划
+## Install on macOS
 
-- 日、周、月和自定义周期计划
-- 为每一天添加多个时间块
-- 设置计划目标、说明、开始时间和结束时间
-- 复制已有计划，快速复用常用安排
+**Requirements:** Apple Silicon Mac (arm64), macOS 13.0 or later according to the app bundle's minimum-version setting. This beta was built and checked on an Apple Silicon Mac; other macOS versions have not been tested for this release. There is no Intel build.
 
-### 日历
+1. Download the [v0.9.0 DMG](https://github.com/Gerahamu/G-Tasker/releases/download/v0.9.0/G-Tasker-0.9.0-macOS-arm64.dmg).
+2. Open the DMG and drag **G-tasker.app** to **Applications**.
+3. Open the app from Applications. Allow notifications if you want reminders.
 
-- 月历浏览与日期跳转
-- 阳历与农历显示
-- 多地区节假日数据
-- 一次性和每年重复的日期标记
-- 在日历中查看任务截止日期
+The app has an **ad hoc code signature** for bundle integrity, but it is **not signed with an Apple Developer ID and is not notarized**. macOS may block the first launch. If you trust this download, try opening the app, then go to **System Settings → Privacy & Security → Open Anyway** and confirm the prompt. [Apple explains this exception process](https://support.apple.com/en-us/102445). Do not disable Gatekeeper globally.
 
-### 时钟工具
+## Data and current limits
 
-- 世界时钟与时区时间对比
-- 秒表
-- 多个倒计时
-- 闹钟与重复规则
-- 浏览器通知和提醒设置
+G-Tasker is local-first. There is no account sync or cloud backup. Settings can export a JSON copy of the local database, but this beta does not provide an in-app JSON restore flow. Keep a separate backup before replacing or removing the app. Browser mode must remain open for browser-based notifications; desktop notification behavior depends on macOS permissions and scheduling. This is a public beta, so please report reproducible issues through [GitHub Issues](https://github.com/Gerahamu/G-Tasker/issues).
 
-### 搜索与个性化
+## Development
 
-- 跨任务、标签、备忘录、灵感箱和计划的全局搜索
-- 浅色、深色和跟随系统主题
-- 小、标准和大三档字体
-- 中文、English、日本語界面
-- 日历节日地区设置
-- 通知、默认优先级及默认截止日期设置
-- JSON 数据导出
+**Stack:** Electron 44, React 19, TypeScript 6, Vite 8, Tailwind CSS 4, React Router 7, Zustand 5, Dexie and IndexedDB, date-fns, lunar-typescript, dnd-kit, and Playwright.
 
-## 技术栈
-
-| 类别           | 技术                                 |
-| -------------- | ------------------------------------ |
-| UI             | React 19、TypeScript、Tailwind CSS 4 |
-| 构建           | Vite 8                               |
-| 路由           | React Router 7                       |
-| 状态管理       | Zustand 5                            |
-| 本地数据库     | Dexie + IndexedDB                    |
-| 日期与重复规则 | date-fns、rrule、lunar-typescript    |
-| 拖拽交互       | dnd-kit                              |
-| 图标           | Lucide React                         |
-| 代码质量       | TypeScript、Oxlint、ESLint、Prettier |
-| 端到端测试     | Playwright                           |
-
-## 快速开始
-
-### 环境要求
-
-- Node.js `>= 22.13.0`
-- npm `>= 10.9.0`
-
-### 本地运行
+**Tools:** Node.js 22.13.0 or later and npm 10.9.0 or later. A Mac is required for the current desktop packaging script.
 
 ```bash
 git clone https://github.com/Gerahamu/G-Tasker.git
 cd G-Tasker
-npm install
+npm ci
 npm run dev
 ```
 
-开发服务器启动后，访问终端中显示的本地地址，通常为：
-
-```text
-http://localhost:5173
-```
-
-### 生产构建
+For a desktop development run or a local Apple Silicon package:
 
 ```bash
-npm run build
-npm run preview
+npm run desktop
+npm run build:mac
 ```
 
-构建产物会生成在 `dist/` 目录中。
+The current packaging script produces `release/G-tasker-darwin-arm64/G-tasker.app`. The downloadable DMG wraps that verified app bundle. For checks, run `npm run test:data`, `npm run typecheck`, and `npm run lint`; browser end-to-end coverage is available with `CI=1 npx playwright test --reporter=list`.
 
-## 常用命令
+## Status and direction
 
-| 命令                   | 说明                        |
-| ---------------------- | --------------------------- |
-| `npm run dev`          | 启动开发服务器              |
-| `npm run build`        | 执行类型检查并生成生产构建  |
-| `npm run preview`      | 本地预览生产构建            |
-| `npm run typecheck`    | 执行 TypeScript 类型检查    |
-| `npm run lint`         | 使用 Oxlint 检查代码        |
-| `npm run lint:all`     | 执行 Oxlint 与 ESLint       |
-| `npm run format`       | 使用 Prettier 格式化文件    |
-| `npm run format:check` | 检查代码格式                |
-| `npm run test:e2e`     | 运行 Playwright 端到端测试  |
-| `npm run test:e2e:ui`  | 使用 Playwright UI 运行测试 |
-| `npm run dead-code`    | 使用 Knip 检查未使用代码    |
-| `npm run audit:prod`   | 检查生产依赖安全问题        |
-
-## 项目结构
-
-```text
-G-Tasker/
-├── public/                 # 图标等静态资源
-├── src/
-│   ├── autosave/           # 自动保存逻辑
-│   ├── components/
-│   │   ├── calendar/       # 日历与日期标记
-│   │   ├── clock/          # 世界时钟、秒表、倒计时和闹钟
-│   │   ├── inbox/          # 灵感箱
-│   │   ├── memo/           # 备忘录
-│   │   ├── planning/       # 时间规划
-│   │   ├── search/         # 全局搜索
-│   │   ├── settings/       # 应用设置
-│   │   ├── sidebar/        # 侧边栏导航
-│   │   ├── task/           # 任务创建与任务列表
-│   │   └── task-detail/    # 任务详情
-│   ├── db/                 # Dexie 数据库定义
-│   ├── layouts/            # 应用布局
-│   ├── lib/                # 类型、日期、国际化等公共逻辑
-│   ├── router/             # 页面路由
-│   └── stores/             # Zustand 状态管理
-├── playwright.config.ts    # 端到端测试配置
-├── vite.config.ts          # Vite 配置
-└── package.json
-```
-
-## 数据与隐私
-
-- 任务、列表、标签、备忘录、灵感、计划、日历标记和时钟数据主要保存在浏览器 IndexedDB 中。
-- 主题、语言、字体大小及部分偏好设置保存在 localStorage 中。
-- 项目当前不要求注册账号，也不需要远程数据库。
-- 清除浏览器站点数据会同时清除本地应用数据，请定期通过设置页面导出 JSON 备份。
-- 浏览器通知功能只有在用户主动授权后才会启用。
-
-## 部署
-
-执行 `npm run build` 后，可将 `dist/` 目录部署到任意静态托管服务，例如 GitHub Pages、Vercel、Netlify 或 Cloudflare Pages。
-
-由于项目使用客户端路由，部署平台需要将未知路径回退到 `index.html`。
-
-## 参与贡献
-
-欢迎通过 Issue 提交问题或功能建议，也欢迎提交 Pull Request：
-
-1. Fork 本仓库。
-2. 创建功能分支：`git switch -c feature/your-feature`。
-3. 完成修改并运行 `npm run check`。
-4. 提交改动并推送分支。
-5. 创建 Pull Request，说明修改内容和验证方式。
-
-## 开源许可
-
-本仓库目前尚未包含开源许可证。在添加许可证之前，代码默认保留所有权利。
+v0.9.0 is a macOS public beta. Near-term work is focused on release feedback, reliable data handling, and clearer installation. Developer ID signing and notarization, an Intel build, and a supported restore flow are future work; none is included in this release. Windows and mobile packages have not been published from this codebase.

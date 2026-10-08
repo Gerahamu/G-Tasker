@@ -1,94 +1,92 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './router/routes';
-import { initAutoSave } from './autosave/autosave-engine';
+import { initAutoSave, reportSaveFailure, stopAutoSave } from './autosave/autosave-engine';
 import { I18nProvider, CalendarCountryProvider } from './lib/i18n';
-import { useTagStore } from './stores/tag-store';
 import { useListStore } from './stores/list-store';
 import { useTaskStore } from './stores/task-store';
+import { useMemoStore } from './stores/memo-store';
 import { OnboardingGuide, isOnboardingDone } from './components/onboarding/OnboardingGuide';
-import { db } from './db/database';
-
-async function ensureDefaultList() {
-  try {
-    const all = await db.taskLists.toArray();
-    const has = all.some((l) => l.name === '默认列表');
-    if (!has) {
-      await db.taskLists.add({
-        name: '默认列表',
-        color: '#3b82f6',
-        icon: 'Inbox',
-        sortOrder: 1,
-        isSmartList: false,
-        filterConfig: null,
-        createdAt: new Date().toISOString(),
-      });
-      // StrictMode 可能并发创建两份，等加载后去重
-      const reloaded = await db.taskLists.toArray();
-      const defaults = reloaded.filter((l) => l.name === '默认列表');
-      if (defaults.length > 1) {
-        defaults.sort((a, b) => (a.id || 0) - (b.id || 0));
-        for (let i = 1; i < defaults.length; i++) {
-          await db.taskLists.delete(defaults[i].id!);
-        }
-      }
-    }
-  } catch {
-    /* silent */
-  }
-}
-
-function readPreference(key: string, fallback: string): string {
-  const raw = localStorage.getItem(key);
-  if (!raw) return fallback;
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === 'string' ? parsed : fallback;
-  } catch {
-    return raw;
-  }
-}
-
-function initTheme() {
-  const mode = readPreference('theme-mode', 'system');
-  if (mode === 'dark') document.documentElement.classList.add('dark');
-  else if (mode === 'light') document.documentElement.classList.remove('dark');
-  else {
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      document.documentElement.classList.add('dark');
-    }
-  }
-}
-
-function initFontSize() {
-  const size = readPreference('font-size', 'normal');
-  document.documentElement.classList.remove(
-    'font-scale-small',
-    'font-scale-normal',
-    'font-scale-large',
-  );
-  document.documentElement.classList.add(`font-scale-${size}`);
-}
+import { ensureDefaultList } from './db/task-operations';
+import { StartupAnimation } from './components/startup/StartupAnimation';
 
 export default function App() {
-  const loadTags = useTagStore((s) => s.loadTags);
+  const skipStartupAnimation = new URLSearchParams(window.location.search).has('skipStartup');
   const loadLists = useListStore((s) => s.loadLists);
   const loadAllTasks = useTaskStore((s) => s.loadAllTasks);
   const [showOnboarding, setShowOnboarding] = useState(!isOnboardingDone());
+  const [appReady, setAppReady] = useState(false);
+  const [startupActive, setStartupActive] = useState(!skipStartupAnimation);
+  const [startupVisible, setStartupVisible] = useState(!skipStartupAnimation);
+
+  const revealStartup = useCallback(() => setStartupActive(false), []);
+  const completeStartup = useCallback(() => setStartupVisible(false), []);
 
   useEffect(() => {
-    initTheme();
-    initFontSize();
     initAutoSave();
-    loadTags();
-    loadAllTasks();
-    ensureDefaultList().then(() => loadLists());
+    let active = true;
+
+    void ensureDefaultList()
+      .then(() => Promise.all([loadAllTasks(), loadLists()]))
+      .catch(reportSaveFailure)
+      .finally(() => {
+        if (active) setAppReady(true);
+      });
+
+    return () => {
+      active = false;
+      stopAutoSave();
+    };
+  }, [loadAllTasks, loadLists]);
+
+  useEffect(() => {
+    const unsubscribe = window.gtaskerMemoBridge?.onSaveRequest(({ requestId, content }) => {
+      void (async () => {
+        const normalized = content.trim();
+        if (!normalized) {
+          window.gtaskerMemoBridge?.respondSaveRequest(requestId, {
+            ok: false,
+            error: 'empty',
+          });
+          return;
+        }
+
+        try {
+          const now = new Date().toISOString();
+          const id = await useMemoStore.getState().addMemo({
+            title: normalized.slice(0, 20),
+            content: normalized,
+            pinned: false,
+            tags: '[]',
+            createdAt: now,
+            updatedAt: now,
+          });
+          window.gtaskerMemoBridge?.respondSaveRequest(requestId, { ok: true, id });
+        } catch (error) {
+          window.gtaskerMemoBridge?.respondSaveRequest(requestId, {
+            ok: false,
+            error: error instanceof Error ? error.message : 'save failed',
+          });
+        }
+      })();
+    });
+
+    return unsubscribe;
   }, []);
 
   return (
     <I18nProvider>
       <CalendarCountryProvider>
-        <RouterProvider router={router} />
+        <div className={`app-startup-frame${startupActive ? ' app-startup-active' : ''}`}>
+          <RouterProvider router={router} />
+        </div>
+        {startupVisible && (
+          <StartupAnimation
+            appReady={appReady}
+            onReveal={revealStartup}
+            onComplete={completeStartup}
+          />
+        )}
         <OnboardingGuide open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       </CalendarCountryProvider>
     </I18nProvider>

@@ -11,19 +11,32 @@ export function ToastContainer() {
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
       {toasts.map((toast) => {
         const Icon = toast.type === 'success' ? CheckCircle : toast.type === 'error' ? XCircle : Info;
-        const bgColor =
-          toast.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
-          toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-          'bg-blue-50 border-blue-200 text-blue-800';
+        const toneClass =
+          toast.type === 'success' ? 'gt-toast-success' :
+          toast.type === 'error' ? 'gt-toast-error' :
+          'gt-toast-info';
 
         return (
           <div
             key={toast.id}
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg min-w-[300px] animate-slide-in ${bgColor}`}
+            className={`gt-toast ${toneClass} flex items-center gap-3 px-4 py-3 min-w-[300px] animate-slide-in`}
+            data-ui="toast"
           >
             <Icon size={18} />
             <span className="flex-1 text-sm">{toast.message}</span>
-            <button onClick={() => removeToast(toast.id)} className="opacity-60 hover:opacity-100">
+            {toast.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                className="gt-toast-action"
+                onClick={() => {
+                  removeToast(toast.id);
+                  void toast.onAction?.();
+                }}
+              >
+                {toast.actionLabel}
+              </button>
+            )}
+            <button type="button" aria-label="Close" onClick={() => removeToast(toast.id)} className="gt-button-icon min-h-0 w-auto h-auto p-0 opacity-60 hover:opacity-100">
               <X size={14} />
             </button>
           </div>

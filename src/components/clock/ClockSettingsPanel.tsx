@@ -5,106 +5,118 @@ import { Volume2, Bell, Clock } from 'lucide-react';
 
 export function ClockSettingsPanel() {
   const { t } = useT();
-  const settings = useClockStore(s => s.clockSettings);
-  const updateSettings = useClockStore(s => s.updateClockSettings);
+  const settings = useClockStore((state) => state.clockSettings);
+  const updateSettings = useClockStore((state) => state.updateClockSettings);
 
   if (!settings) return null;
 
   const perm = getNotificationPermission();
 
   return (
-    <div className="max-w-lg mx-auto space-y-6">
-      {/* Time display */}
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+    <div className="clock-settings-panel">
+      <div className="clock-settings-group">
+        <div className="clock-settings-heading">
           <Clock size={16} /> {t('timeDisplay')}
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => updateSettings({ timeFormat: '24h' })}
-            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-              settings.timeFormat === '24h' ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-700'
-            }`}
-          >
-            {t('format24h')}
-          </button>
-          <button
-            onClick={() => updateSettings({ timeFormat: '12h' })}
-            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-              settings.timeFormat === '12h' ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-700'
-            }`}
-          >
-            {t('format12h')}
-          </button>
+        <div
+          className="gt-segmented clock-settings-format"
+          role="group"
+          aria-label={t('timeDisplay')}
+        >
+          {(['24h', '12h'] as const).map((format) => (
+            <button
+              key={format}
+              type="button"
+              aria-pressed={settings.timeFormat === format}
+              onClick={() => updateSettings({ timeFormat: format })}
+              className={`gt-segmented-item py-1.5 text-xs font-medium ${settings.timeFormat === format ? 'is-active text-blue-700' : 'text-gray-500'}`}
+            >
+              {t(format === '24h' ? 'format24h' : 'format12h')}
+            </button>
+          ))}
         </div>
-        <label className="flex items-center gap-2 text-sm">
+        <label className="clock-settings-checkbox">
           <input
             type="checkbox"
             checked={settings.showSeconds}
-            onChange={e => updateSettings({ showSeconds: e.target.checked })}
+            onChange={(event) => updateSettings({ showSeconds: event.target.checked })}
           />
           {t('showSec')}
         </label>
       </div>
 
-      {/* Volume */}
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+      <div className="clock-settings-group">
+        <div className="clock-settings-heading">
           <Volume2 size={16} /> {t('defaultVolume')}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="clock-settings-value-row">
           <input
-            type="range" min="0" max="1" step="0.1"
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
             value={settings.defaultVolume}
-            onChange={e => updateSettings({ defaultVolume: Number(e.target.value) })}
+            onChange={(event) => updateSettings({ defaultVolume: Number(event.target.value) })}
             className="flex-1"
           />
-          <span className="text-sm tabular-nums w-10">{Math.round(settings.defaultVolume * 100)}%</span>
+          <span className="clock-settings-value">{Math.round(settings.defaultVolume * 100)}%</span>
         </div>
       </div>
 
-      {/* Snooze */}
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+      <div className="clock-settings-group">
+        <div className="clock-settings-heading">{t('defaultSound')}</div>
+        <select
+          value={settings.defaultSound}
+          onChange={(event) => updateSettings({ defaultSound: event.target.value })}
+          className="gt-field clock-settings-select"
+        >
+          <option value="beep">{t('soundBeep')}</option>
+          <option value="soft">{t('soundSoft')}</option>
+          <option value="digital">{t('soundDigital')}</option>
+        </select>
+      </div>
+
+      <div className="clock-settings-group">
+        <div className="clock-settings-heading">
           <Bell size={16} /> {t('defaultSnoozeDur')}
         </div>
         <select
           value={settings.defaultSnoozeMinutes}
-          onChange={e => updateSettings({ defaultSnoozeMinutes: Number(e.target.value) })}
-          className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-gray-800"
+          onChange={(event) => updateSettings({ defaultSnoozeMinutes: Number(event.target.value) })}
+          className="gt-field clock-settings-select"
         >
-          {[5, 9, 10, 15, 20, 30].map(m => (
-            <option key={m} value={m}>{m} {t('min')}</option>
+          {[5, 9, 10, 15, 20, 30].map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {minutes} {t('min')}
+            </option>
           ))}
         </select>
       </div>
 
-      {/* Notification permission */}
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-          {t('notifyPermission')}
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`text-sm px-2 py-1 rounded ${
-            perm === 'granted' ? 'bg-green-100 dark:bg-green-900/30 text-green-600' :
-            perm === 'denied' ? 'bg-red-100 dark:bg-red-900/30 text-red-400' :
-            'bg-gray-100 dark:bg-gray-700 text-gray-500'
-          }`}>
-            {perm === 'granted' ? t('notifyGranted') : perm === 'denied' ? t('notifyDenied') : t('notifyDefault')}
+      <div className="clock-settings-group">
+        <div className="clock-settings-heading">{t('notifyPermission')}</div>
+        <div className="clock-settings-permission-row">
+          <span className={`clock-settings-permission is-${perm}`}>
+            {perm === 'granted'
+              ? t('notifyGranted')
+              : perm === 'denied'
+                ? t('notifyDenied')
+                : t('notifyDefault')}
           </span>
           {perm !== 'granted' && (
             <button
+              type="button"
               onClick={async () => {
                 const result = await requestNotificationPermission();
                 updateSettings({ notificationPermission: result });
               }}
-              className="btn btn-primary text-xs py-1 px-3"
+              className="gt-button-secondary min-h-0 px-3 py-1.5 text-xs"
             >
               {t('requestNotify')}
             </button>
           )}
         </div>
-        <p className="text-xs text-gray-400">{t('browserLimit')}</p>
+        <p className="clock-settings-note">{t('browserLimit')}</p>
       </div>
     </div>
   );

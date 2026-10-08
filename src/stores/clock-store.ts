@@ -43,7 +43,7 @@ let pollIntervalId: ReturnType<typeof setInterval> | null = null;
 
 interface ClockStoreState {
   // Active tab
-  activeTab: 'worldclock' | 'stopwatch' | 'countdown' | 'alarm' | 'settings';
+  activeTab: 'worldclock' | 'stopwatch' | 'countdown' | 'alarm';
 
   // World Clock
   timezones: ClockTimezone[];
@@ -170,7 +170,7 @@ export const useClockStore = create<ClockStoreState>((set, get) => ({
     await get().loadTimezones();
   },
 
-  reorderTimezones: async (_fromIndex, _toIndex) => {
+  reorderTimezones: async () => {
     // Simple: just reload — DnD reordering handled by the component
     await get().loadTimezones();
   },
@@ -435,8 +435,22 @@ export const useClockStore = create<ClockStoreState>((set, get) => ({
         cd.totalSeconds,
       );
       if (remaining <= 0) {
-        // Mark as completed
-        get().countdownComplete(cd.id!);
+        // Mark synchronously in memory before the next 200ms poll, then persist.
+        set((state) => ({
+          countdowns: state.countdowns.map((countdown) =>
+            countdown.id === cd.id
+              ? {
+                  ...countdown,
+                  status: 'completed',
+                  startTimestamp: null,
+                  remainingAtPause: 0,
+                  updatedAt: new Date().toISOString(),
+                }
+              : countdown,
+          ),
+          countdownDisplays: { ...state.countdownDisplays, [cd.id!]: 0 },
+        }));
+        void get().countdownComplete(cd.id!);
         // Trigger reminder
         const event: ReminderEvent = {
           id: `cd-${cd.id}-${Date.now()}`,
@@ -567,7 +581,12 @@ export const useClockStore = create<ClockStoreState>((set, get) => ({
   snoozeReminder: (eventId) => {
     const evt = get().activeReminders.find((r) => r.id === eventId);
     if (!evt) return;
-    reminderEngine.snooze(eventId, evt.snoozeMinutes || 9);
+    if (window.gtaskerReminders?.nativeNotifications) {
+      reminderEngine.dismiss(eventId);
+      void window.gtaskerReminders.snooze(evt, evt.snoozeMinutes || 9);
+    } else {
+      reminderEngine.snooze(eventId, evt.snoozeMinutes || 9);
+    }
     set((s) => ({ activeReminders: s.activeReminders.filter((r) => r.id !== eventId) }));
   },
 
@@ -575,7 +594,7 @@ export const useClockStore = create<ClockStoreState>((set, get) => ({
     set((s) => ({
       activeReminders: [...s.activeReminders.filter((r) => r.id !== event.id), event],
     }));
-    reminderEngine.startAudio(event);
+    if (!window.gtaskerReminders?.nativeNotifications) reminderEngine.startAudio(event);
   },
 
   // ──── Polling ────

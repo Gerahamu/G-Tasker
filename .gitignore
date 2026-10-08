@@ -1,5 +1,6 @@
 # Logs
 logs
+/.g-tasker/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -9,6 +10,8 @@ lerna-debug.log*
 
 node_modules
 dist
+.superpowers/
+.worktrees/
 coverage
 reports
 test-results
@@ -29,3 +32,16 @@ dist-ssr
 *.sw?
 .env
 *.zip
+/dist-desktop/
+/release/
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.mobileprovision
+*.dmg
+*.db
+*.sqlite
+*.sqlite3
+*.tsbuildinfo

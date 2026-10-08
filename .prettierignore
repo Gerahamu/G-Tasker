@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-desktop
 coverage
 reports
 .vercel
