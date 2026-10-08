@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/favicon.svg" alt="G-Tasker icon" width="72" height="72" />
+  <img src="assets/gtasker-app-icon.png" alt="G-Tasker app icon" width="72" height="72" />
 
   # G-Tasker
 
